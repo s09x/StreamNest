@@ -24,39 +24,41 @@ function setup(urls: string[], api: (url: string, options: RequestOptions) => Pr
       if (url === detail) return response(url, `<html><head><title>Film Fixture Film Stream</title></head><body><article class="detail pDetails">
         <h2 class="bgDark">Fixture Film</h2><p>Veröffentlicht: 2020</p>
         ${urls.map(value => `<a class="iconPlay" href="${value}">Play</a>`).join('')}</article></body></html>`);
-      if (url.endsWith('/api/stream')) return api(url, options);
+      if (url.startsWith('https://vixeo.io/e/') || url.startsWith('https://vidsonic.net/e/')) return api(url, options);
       assert.ok(url.startsWith('https://media.example.invalid/'));
       return response(url, manifest);
     },
     async json(url, options) { return JSON.parse((await this.request(url, options)).text); },
-    session() { assert.fail('These public Vidara fixtures must not acquire a cookie session'); },
+    session() { assert.fail('These public Vixeo fixtures must not acquire a cookie session'); },
     cookies() { return {}; },
   };
   return { http, calls, provider: createWebProviders(http, { async resolve() { return identity; } }) };
 }
 
-function apiResponse(url: string, options: RequestOptions): TextResponse {
-  const payload = JSON.parse(options.body!) as { filecode: string };
-  return response(url, { filecode: payload.filecode, title: '', subtitles: [],
-    streaming_url: `https://media.example.invalid/${new URL(url).hostname}/${payload.filecode}.m3u8` });
+function apiResponse(url: string, _options: RequestOptions): TextResponse {
+  const address = new URL(url);
+  const filecode = address.pathname.split('/').pop()!;
+  const source = `https://media.example.invalid/${address.hostname}/${filecode}.m3u8`;
+  const config = { videoId: filecode, source: Buffer.from(source).reverse().toString('hex'), isMp4: false, subtitles: [] };
+  return response(url, `<html><body><div id="streamsonic-player-root" data-config="${Buffer.from(JSON.stringify(config)).toString('base64')}"></div></body></html>`);
 }
 
 test('case-distinct public mirror IDs are not collapsed during Filmpalast extraction', async () => {
-  const fixture = setup(['https://odysseusa.cc/e/CaseVideoABC1', 'https://odysseusa.cc/e/caseVideoABC1'], apiResponse);
+  const fixture = setup(['https://vixeo.io/e/CaseVideoABC1', 'https://vixeo.io/e/caseVideoABC1'], apiResponse);
   const streams = await fixture.provider.filmpalast(request);
   assert.deepEqual(streams.map(stream => stream.url), [
-    'https://media.example.invalid/odysseusa.cc/CaseVideoABC1.m3u8',
-    'https://media.example.invalid/odysseusa.cc/caseVideoABC1.m3u8',
+    'https://media.example.invalid/vixeo.io/CaseVideoABC1.m3u8',
+    'https://media.example.invalid/vixeo.io/caseVideoABC1.m3u8',
   ]);
-  assert.equal(fixture.calls.filter(url => url.endsWith('/api/stream')).length, 2);
+  assert.equal(fixture.calls.filter(url => url.startsWith('https://vixeo.io/e/')).length, 2);
 });
 
 test('equal public IDs at different origins remain independent offered mirrors', async () => {
-  const fixture = setup(['https://odysseusa.cc/e/SameVideoABC1', 'https://vidaraa.cc/e/SameVideoABC1'], apiResponse);
+  const fixture = setup(['https://vixeo.io/e/SameVideoABC1', 'https://vidsonic.net/e/SameVideoABC1'], apiResponse);
   const streams = await fixture.provider.filmpalast(request);
   assert.deepEqual(streams.map(stream => stream.url), [
-    'https://media.example.invalid/odysseusa.cc/SameVideoABC1.m3u8',
-    'https://media.example.invalid/vidaraa.cc/SameVideoABC1.m3u8',
+    'https://media.example.invalid/vixeo.io/SameVideoABC1.m3u8',
+    'https://media.example.invalid/vidsonic.net/SameVideoABC1.m3u8',
   ]);
 });
 
@@ -65,8 +67,8 @@ test('mirror resolution has at most three active workers, preserves page order a
   const delays = [35, 5, 20, 2, 10, 1, 1];
   let active = 0; let peak = 0;
   const completions: string[] = [];
-  const fixture = setup(codes.map(code => `https://odysseusa.cc/e/${code}`), async (url, options) => {
-    const code = (JSON.parse(options.body!) as { filecode: string }).filecode;
+  const fixture = setup(codes.map(code => `https://vixeo.io/e/${code}`), async (url, options) => {
+    const code = new URL(url).pathname.split('/').pop()!;
     const index = codes.indexOf(code);
     active++; peak = Math.max(peak, active);
     try {
@@ -82,12 +84,12 @@ test('mirror resolution has at most three active workers, preserves page order a
   assert.equal(completions[0], 'VideoCode002', 'Fixture completions are deliberately out of page order');
   assert.deepEqual(streams.map(stream => new URL(stream.url).pathname.split('/').pop()),
     codes.filter((_, index) => index !== 2).map(code => `${code}.m3u8`));
-  assert.equal(fixture.calls.filter(url => url.endsWith('/api/stream')).length, 7);
+  assert.equal(fixture.calls.filter(url => url.startsWith('https://vixeo.io/e/')).length, 7);
 });
 
 test('all failed mirrors report the first page-order failure rather than a successful empty list', async () => {
-  const fixture = setup(['https://odysseusa.cc/e/FirstVideo12', 'https://odysseusa.cc/e/SecondVideo1'], async (_url, options) => {
-    const first = JSON.parse(options.body!).filecode === 'FirstVideo12';
+  const fixture = setup(['https://vixeo.io/e/FirstVideo12', 'https://vixeo.io/e/SecondVideo1'], async (url) => {
+    const first = url.endsWith('/FirstVideo12');
     await new Promise(resolve => setTimeout(resolve, first ? 15 : 1));
     throw new ProviderError(first ? 'request_failed' : 'source_blocked');
   });

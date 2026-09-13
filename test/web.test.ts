@@ -314,41 +314,19 @@ test('VOE prefers explicit language codes and names over country flags', async (
   assert.equal(stream.language, 'en / fr');
 });
 
-test('Doctor Strange 2 returns the exposed Vidara mirror when its VOE link is dead', async () => {
-  const title = 'Doctor Strange in the Multiverse of Madness';
-  const detail = 'https://filmpalast.to/stream/doctor-strange-in-the-multiverse-of-madness';
-  const embed = 'https://odysseusa.cc/e/ExampleFile12';
-  const source = 'https://media.example.invalid/doctor-strange/master.m3u8?fixture=1';
-  const identity: Identity = { type: 'movie', title, aliases: [title], year: 2022, tmdbId: '453395', imdbId: 'tt9419884' };
-  const fixture = fixtureHttp(({ url, options }) => {
-    if (url.includes('/search/title/')) return response(url, page('Filmpalast', `<a href="${detail}">${title}</a>`));
-    if (url === detail) return response(url, filmpalastDetail(title, 2022, ['https://voe.sx/deadfile1234', embed], 'Film', `${title}.German.1080p`));
-    if (url.startsWith('https://voe.sx/')) return response(url, page('404 - Not found', 'File not found'), 404);
-    if (url === 'https://odysseusa.cc/api/stream') {
-      assert.equal(options.method, 'POST');
-      assert.deepEqual(JSON.parse(options.body!), { filecode: 'ExampleFile12', device: 'web' });
-      assert.equal(options.headers?.Referer, embed);
-      assert.equal(options.headers?.Origin, 'https://odysseusa.cc');
-      assert.equal(Object.keys(options.headers ?? {}).some(key => /cookie|csrf|authorization/i.test(key)), false);
-      return json(url, { filecode: 'ExampleFile12', title: '', streaming_url: source, default_sub_lang: 'sq', subtitles: [
-        { type: 0, file_path: '/subtitles/de.ass', language: 'German' },
-        { type: 0, file_path: 'https://subtitles.example.invalid/en.srt', language: 'English' },
-        { type: 1, file_path: '/thumbnails/preview.jpg', language: 'Images' },
-      ] });
-    }
-    assert.equal(url, source, 'Only the HLS master is inspected; no media segments or captions are fetched');
-    return response(url, '#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1500000,RESOLUTION=1712x720,CODECS="avc1.640020,mp4a.40.2"\nvideo/720.m3u8\n');
+test('Filmpalast ignores both Vidara aliases without requests and retains working alternatives', async () => {
+  const links = ['https://odysseusa.cc/e/ExampleFile12', 'https://vidaraa.cc/e/ExampleFile12', 'https://voe.sx/example12345'];
+  const source = 'https://media.example.invalid/working.m3u8';
+  const fixture = fixtureHttp(({ url }) => {
+    if (url.includes('/search/title/')) return response(url, page('Filmpalast', '<a href="https://filmpalast.to/stream/inception">Inception</a>'));
+    if (url === 'https://filmpalast.to/stream/inception') return response(url, filmpalastDetail('Inception', 2010, links));
+    return response(url, player({ source, captions: [] }));
   });
-  const http: HttpClient = { ...fixture.http, session() { assert.fail('Vidara resolution must not acquire cookies'); } };
-  const streams = await createWebProviders(http, metadata(identity)).filmpalast({ type: 'movie', id: '453395', tmdbId: '453395' });
+  const streams = await createWebProviders(fixture.http, metadata()).filmpalast(movieRequest);
   assert.equal(streams.length, 1);
   assert.equal(streams[0]?.url, source);
-  assert.equal(streams[0]?.quality, '720p', 'Use actual master dimensions instead of the source page 1080p release label');
-  assert.match(streams[0]!.title, /1712x720.*AVC.*AAC/);
-  assert.equal(streams[0]?.language, undefined, 'Neither subtitles nor the upload release name establish this rendition audio inventory');
-  assert.deepEqual(streams[0]?.subtitles?.map(subtitle => subtitle.language), ['de', 'en']);
-  assert.equal(streams[0]?.subtitles?.[0]?.url, 'https://odysseusa.cc/subtitles/de.ass');
-  assert.equal(streams[0]?.subtitles?.[0]?.headers?.Referer, embed);
+  assert.equal(fixture.calls.some(call => /odysseusa\.cc|vidaraa\.cc/.test(call.url)), false);
+  assert.equal(fixture.calls.length, 3);
 });
 
 test('Vidara rejects wrong origins, mismatched file identity, malformed API data and credentialed media URLs', async () => {

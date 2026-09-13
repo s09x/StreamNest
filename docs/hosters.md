@@ -1,13 +1,14 @@
 # Hoster coverage and verification
 
-StreamNest recognizes every hoster family found in the inspected Filmpalast movie
-and episode pages, and both hosters found in the inspected Filmo pages. This is a
-dated source census, not a claim that upstream sites can never add another hoster.
+StreamNest uses five of the six hoster families found in the inspected Filmpalast
+movie and episode pages, and both hosters found in the inspected Filmo pages.
+VIDARA is deliberately excluded from Filmpalast since 0.1.4 at the user's request.
+This is a dated source census, not a claim that upstream sites cannot add hosters.
 
 | Source / hoster | Native path | Observed result on 2026-09-13 |
 | --- | --- | --- |
 | Filmpalast / VOE | Published player data and its normal redirects | Some sampled files resolve; the Doctor Strange 2 file returns 404 in both regular and embed forms. |
-| Filmpalast / VIDARA | `odysseusa.cc` and `vidaraa.cc`: `POST /api/stream`, echoed file code, published HLS URL and sidecars | Doctor Strange 2, Inception, GoT and Fallout produced valid HLS responses. Doctor Strange 2 includes German and English sidecars. |
+| Filmpalast / VIDARA | Intentionally ignored, including `odysseusa.cc` and `vidaraa.cc`; no hoster requests | Earlier adapter checks resolved sample files. Those historical results do not make this an offered mirror in 0.1.4. |
 | Filmpalast / Vixeo | Both `vidsonic.net` and `vixeo.io` layouts; identity-bound Base64/hex data | Both layouts produced valid HLS. A media playlist without a resolution declaration does not produce an invented quality label. |
 | Filmpalast / FireStream | Read `data-player-url`, follow the declared host, parse `video-data` / `token-blob`, POST the normal resolve request | Inception, GoT S06E10 and Fallout S01E01 produced HLS. Fallout publishes a valid German WebVTT sidecar. |
 | Filmpalast / FlyFile | Public file metadata followed by the normal streaming assignment | Doctor Strange 2 produced an adaptive master and German/English sidecars. Its delivered master is 720p even though the upload filename contains 1080p. |

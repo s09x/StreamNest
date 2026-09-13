@@ -160,7 +160,7 @@ test('actual Filmpalast bundle resolves a movie through guest promises, DOM pars
 test('Filmpalast resolves Doctor Strange protocol-relative links with the Nuvio Mobile URL bindings', async () => {
   const title = 'Doctor Strange in the Multiverse of Madness';
   const detail = 'https://filmpalast.to/stream/doctor-strange-in-the-multiverse-of-madness';
-  const media = 'https://media.example.invalid/doctor-strange/master.m3u8?fixture=one%2Btwo';
+  const media = 'https://fixture.flyfile.app/hls/fixture-token/master.m3u8';
   const runtime = await createNativeRuntime(await bundle('filmpalast'), { mobileUrl: true, routes: [
     route('https://www.themoviedb.org/movie/453395?language=de-DE', tmdbPage('movie', '453395', title, 2022)),
     route(`https://v3-cinemeta.strem.io/catalog/movie/top/search=${encodeURIComponent(title)}.json`, { metas: [
@@ -172,10 +172,13 @@ test('Filmpalast resolves Doctor Strange protocol-relative links with the Nuvio 
     route(`https://filmpalast.to/search/title/${encodeURIComponent(title)}`, html('Filmpalast search',
       `<a href="${detail.replace('https:', '')}">${title}</a>`)),
     route(detail, html(`Film ${title} Stream`, `<article class="detail pDetails"><h2 class="bgDark">${title}</h2>
-      <p>Veröffentlicht: 2022</p><a class="iconPlay" href="//odysseusa.cc/e/fixture12345">Play</a></article>`,
+      <p>Veröffentlicht: 2022</p><a class="iconPlay" href="//odysseusa.cc/e/fixture12345">Ignored</a>
+      <a class="iconPlay" href="//vidaraa.cc/e/fixture12345">Ignored</a>
+      <a class="iconPlay" href="//flyfile.app/v/fixture12345">Play</a></article>`,
       `<link rel="canonical" href="${detail.replace('https:', '')}">`)),
-    route('https://odysseusa.cc/api/stream', { filecode: 'fixture12345', streaming_url: media,
-      subtitles: [{ type: 0, file_path: '//subs.example.invalid/de.vtt?fixture=a%2Bb', language: 'German' }] }, { method: 'POST' }),
+    route('https://api.flyfile.app/api/public/file/fixture12345', { token: 'fixture12345', id: 'fixture-id', name: title,
+      videoAsset: { qualities: [{ status: 'READY' }], subtitles: [{ url: '//subs.example.invalid/de.vtt?fixture=a%2Bb', lang: 'de' }] } }),
+    route('https://api.flyfile.app/api/streaming/assign/fixture12345', { url: 'https://fixture.flyfile.app', token: 'fixture-token' }),
     route(media, '#EXTM3U\n#EXT-X-STREAM-INF:RESOLUTION=1280x720\nvideo.m3u8\n'),
   ] });
   try {
@@ -188,7 +191,8 @@ test('Filmpalast resolves Doctor Strange protocol-relative links with the Nuvio 
     assert.equal(streams[0]?.url, media);
     assert.equal(streams[0]?.quality, '720p');
     assert.equal((streams[0]?.subtitles as Array<Record<string, unknown>>)[0]?.url, 'https://subs.example.invalid/de.vtt?fixture=a%2Bb');
-    assert.equal(runtime.value('__requests.length'), 7);
+    assert.equal(runtime.value('__requests.length'), 8);
+    assert.equal(runtime.value(`__requests.some(request => /odysseusa\\.cc|vidaraa\\.cc/.test(request.url))`), false);
     assert.equal(runtime.value(`new URL('https://filmpalast.to/stream/example').hash`), '#',
       'the provider must adapt URL instances without overwriting the host constructor');
   } finally { runtime.dispose(); }
@@ -278,11 +282,14 @@ for (const mobileUrl of [false, true]) test(`actual Filmo bundle completes Byse 
   const encrypted = { version: '0', key_parts: [key.subarray(0, 16).toString('base64url'), key.subarray(16).toString('base64url')],
     iv: iv.toString('base64url'), payload: payload.toString('base64url') };
   const chip = (name: string, id: string) => `<div data-provider-chip data-movie-link-id="${id}" data-p="synthetic-${name}"><span class="provider-chip__name">${name}</span></div>`;
-  const runtime = await createNativeRuntime(await bundle('filmo'), { mobileUrl, provideCryptoRandom: true, routes: [
+  // The reported iOS crash exhausted the native stack while recursively reading
+  // a nested Filmo page. Keep deep markup outside the selected stream fields.
+  const nestedMarkup = '<div>'.repeat(512) + 'Nested page content' + '</div>'.repeat(512);
+  const runtime = await createNativeRuntime(await bundle('filmo'), { mobileUrl, maxStackSize: 256 * 1024, provideCryptoRandom: true, routes: [
     route('http://filmo.to/', html('Filmo', 'Public home'), { finalUrl: 'https://filmo.to/' }),
     ...movieMetadata(),
     route('https://filmo.to/search/suggest?q=Inception', { movies: [{ title: 'Inception', url: '//filmo.to/movies/inception' }] }),
-    route('https://filmo.to/movies/inception', html('Filmo Inception', `<main><h1>Inception</h1><p>Erscheinungsdatum: 2010</p>${chip('VOE', '1')}${chip('Byse', '2')}</main>`,
+    route('https://filmo.to/movies/inception', html('Filmo Inception', `<main><h1>Inception</h1><p>Erscheinungsdatum: 2010</p>${chip('VOE', '1')}${chip('Byse', '2')}${nestedMarkup}</main>`,
       '<meta name="csrf-token" content="synthetic-csrf">'), { headers: { 'set-cookie': 'filmo-session=synthetic-session; Path=/; Secure' } }),
     route('https://filmo.to/n', { x: 'synthetic-jump' }, { method: 'POST' }),
     route('https://filmo.to/n/synthetic-jump', html('Video öffnen', `<a class="open" rel="noopener noreferrer" href="${watch}">Open</a>`)),

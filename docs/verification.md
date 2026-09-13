@@ -6,7 +6,7 @@ provider/server combination works.
 
 ## Automated checks
 
-The 0.1.3 local `npm run check` on Node.js 25.6.1 passed 146 tests with zero
+The 0.1.4 local `npm run check` on Node.js 25.6.1 passed 149 tests with zero
 failures. One public network test is opt-in and remains excluded from CI; the
 separate built-provider live checks below were run explicitly. The earlier 0.1.1
 check on Node.js 24.21.0 passed 136 tests. The runtime dependency audit reports one low-severity
@@ -34,8 +34,8 @@ and runs unit and QuickJS tests. The tests cover:
   Nuvio's global fetch function.
 - German metadata aliases and validated TMDB/IMDb cross-references.
 - Filmpalast/Filmo matching and all hoster families in the inspected page census.
-- Source identity, bounded concurrent mirrors, deterministic order and isolation
-  of failed hosters, including Doctor Strange 2's dead VOE file.
+- Source identity, bounded concurrent mirrors, deterministic order, isolation
+  of failed hosters, and deliberate VIDARA exclusion without hoster requests.
 - Filmo's VOE redirect guard and Byse's independent same-origin HTML handoff.
 - Genuine single-use P-256 signatures verified independently with Node/OpenSSL,
   native-RNG fallback, proof vectors, authenticated AES-GCM, and a complete built
@@ -50,6 +50,8 @@ and runs unit and QuickJS tests. The tests cover:
   preservation of verified streams when supplemental candidates are ambiguous.
 - Strict XML fallbacks, complete JSON-prefix identity properties and exact legacy
   season/episode selection.
+- Iterative DOM text extraction, including decoded Unicode, comments, CDATA,
+  script/style text and deeply nested markup in a 256 KiB QuickJS stack.
 
 The public live test in `test/web.test.ts` is opt-in and excluded from ordinary CI.
 It was run separately during 0.1.0 development. Fixtures and CI contain no real accounts
@@ -59,6 +61,44 @@ All three final 0.1.1 JavaScript files also compiled successfully with the actua
 Hermes 0.11.0 compiler. The web bundles produced only a nonfatal warning about a
 guarded `window.Buffer` branch in `bn.js`; the executed QuickJS tests do not supply
 Node's Buffer. Compiler acceptance is not a physical-device playback test.
+
+## 0.1.4 Filmo stack overflow and VIDARA exclusion
+
+The user isolated an app termination to Filmo and supplied an iOS crash report:
+Nuvio Enhanced 0.4.14 build 118, iOS 18.6.2, `EXC_BAD_ACCESS` / `SIGBUS`, with
+`KERN_PROTECTION_FAILURE` at the stack boundary. The triggered thread begins at
+`___chkstk_darwin` and repeatedly alternates `JS_CallInternal` and
+`js_array_every`. QuickJS uses that C entry point for `map` as well as `every`.
+
+The inspected Filmo Doctor Strange page had 22 DOM levels. Reading its entire
+`main` text through Cheerio caused 20 nested `map` calls in domutils' recursive
+`textContent` implementation. Filmo now traverses text nodes iteratively, with
+explicit traversal frames and no recursive DOM-text calls. Its title, year,
+language and quality extraction preserve the existing textContent behavior.
+
+Both built Filmo integration cases were extended with 512 nested elements and
+the native library's 256 KiB stack limit. Before the fix both failed with
+`stack overflow`; after the fix both completed the stream workflow. Separate
+tests cover 10,000 nested HTML elements and text semantics. These checks reproduce
+and fix the vulnerable traversal; an actual iPhone retest is still required.
+
+The native checker can now read client files at a local Git reference, including
+0.4.14's generated polyfill code. Its native fetch adapter blocks until HTTP
+finishes and returns a string, matching that version's synchronous bridge. The
+earlier promise-returning adapter was incompatible with the 0.4.14 wrapper and
+was corrected before interpreting its live results.
+
+The final 0.1.4 providers were run with `--client-ref 0.4.14`, the 256 KiB stack
+and automatically followed HTTP redirects. For Doctor Strange 2, Filmo completed
+the Byse flow and returned one 720p English/German stream in 26.6 seconds without
+a runtime error. Filmpalast returned one FlyFile 720p stream with two external
+subtitles in 7.0 seconds; its nine requests contained no VIDARA host. These are
+QuickJS tests with Node HTTP adapters, not physical iOS playback measurements.
+
+VIDARA was separately removed from Filmpalast selection at the user's request.
+Tests verify that both known domains receive zero requests and that other
+hosters remain available. Mirror concurrency and identity tests now use Vixeo;
+they retain their original behavioral assertions.
 
 ## 0.1.3 native URL and Xtream latency corrections
 

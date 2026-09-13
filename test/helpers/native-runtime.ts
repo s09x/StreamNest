@@ -10,7 +10,7 @@ export interface FixtureRoute {
   body: string;
   finalUrl?: string;
 }
-export interface FixtureOptions { settings?: unknown; routes?: FixtureRoute[]; provideAtob?: boolean; provideCryptoRandom?: boolean; mobileUrl?: boolean }
+export interface FixtureOptions { settings?: unknown; routes?: FixtureRoute[]; provideAtob?: boolean; provideCryptoRandom?: boolean; mobileUrl?: boolean; maxStackSize?: number }
 export type GuestResult = { ok: true; value: unknown } | { ok: false; error: { name: string; message: string; code?: string } };
 
 /** Standard URL APIs are host-backed; fetch and all source responses remain inside the guest. */
@@ -18,7 +18,7 @@ export async function createNativeRuntime(bundle: string, options: FixtureOption
   const quickjs = await getQuickJS();
   const vm = quickjs.newContext();
   vm.runtime.setMemoryLimit(64 * 1024 * 1024);
-  vm.runtime.setMaxStackSize(1024 * 1024);
+  vm.runtime.setMaxStackSize(options.maxStackSize ?? 1024 * 1024);
   vm.runtime.setInterruptHandler(shouldInterruptAfterDeadline(Date.now() + 10_000));
 
   const urlOperation = vm.newFunction('__urlOperation', (requestHandle) => {

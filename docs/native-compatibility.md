@@ -152,6 +152,20 @@ old/new release numbers were not supplied.
 - [Immediate host calls](https://github.com/luqmanfadlli/NuvioMobile-Enhanced/blob/111eaa807a39ee550dc1f91630535d39c8fc4ef9/composeApp/src/fullCommonMain/kotlin/com/nuvio/app/features/plugins/runtime/js/JsBindings.kt#L4)
 - [Gear-button result gate](https://github.com/luqmanfadlli/NuvioMobile-Enhanced/blob/111eaa807a39ee550dc1f91630535d39c8fc4ef9/composeApp/src/fullCommonMain/kotlin/com/nuvio/app/features/plugins/PluginsSettingsScreen.kt#L418)
 
+### Filmo and native stack size
+
+The supplied crash report identifies Enhanced 0.4.14 build 118 on iOS 18.6.2.
+Its QuickJS thread exhausted the native stack during recursive array callbacks.
+Filmo's full-page Cheerio text extraction recursively mapped each DOM level;
+the observed page reached 20 nested maps. Since 0.1.4 Filmo reads those text nodes
+iteratively. A 512-level built-provider regression fails before the change and
+passes afterward with a 256 KiB interpreter stack. The native library uses this
+stack limit by default; the earlier generic test harness used 1 MiB.
+
+The fix does not increase the app's native stack or claim that a caught provider
+error can recover a native process crash. Native device acceptance remains
+separate from the QuickJS/WASM regression.
+
 Evidence:
 
 - [Mobile settings save](https://github.com/NuvioMedia/NuvioMobile/blob/13cd02040a6e9b8bc3b5a51c4925fb0603597955/composeApp/src/fullCommonMain/kotlin/com/nuvio/app/features/plugins/PluginSettingsDialog.kt#L191)

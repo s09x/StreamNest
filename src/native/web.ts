@@ -1,9 +1,9 @@
 import { resolveUrl } from './url.js';
 import { load } from 'cheerio/slim';
 import { ProviderError } from './errors.js';
+import { domText } from './dom-text.js';
 import { jsonResponse, normalizeTitle, objectValue, responseText, yearValue } from './metadata.js';
 import { httpUrl, isVoeUrl, resolveVoe } from './voe.js';
-import { isVidaraUrl, resolveVidara } from './vidara.js';
 import { isVixeoUrl, resolveVixeo } from './vixeo.js';
 import { isPlaymateUrl, resolvePlaymate } from './playmate.js';
 import { isFlyfileUrl, resolveFlyfile } from './flyfile.js';
@@ -16,7 +16,7 @@ const MAX_DETAILS = 8;
 const MAX_MIRRORS = 32;
 interface PageMatch { url: string; title: string; year: number; release?: string; mirrors: Mirror[] }
 interface Mirror { key: string; url?: string; quality?: string; language?: string;
-  provider?: 'voe' | 'vidara' | 'vixeo' | 'playmate' | 'flyfile' | 'firestream' | 'byse' }
+  provider?: 'voe' | 'vixeo' | 'playmate' | 'flyfile' | 'firestream' | 'byse' }
 
 function sourceUrl(value: string, origin: string, pathPrefix: string): string {
   const result = resolveUrl(httpUrl(value, origin));
@@ -87,7 +87,8 @@ function parseFilmpalast(html: string, url: string, identity: Identity, request:
     if (!raw) return;
     let target: string;
     try { target = httpUrl(raw, canonicalUrl); } catch { return; }
-    const provider = isVoeUrl(target) ? 'voe' : isVidaraUrl(target) ? 'vidara' : isVixeoUrl(target) ? 'vixeo'
+    // VIDARA and its odysseusa.cc/vidaraa.cc aliases are intentionally excluded.
+    const provider = isVoeUrl(target) ? 'voe' : isVixeoUrl(target) ? 'vixeo'
       : isPlaymateUrl(target) ? 'playmate' : isFlyfileUrl(target) ? 'flyfile' : isFirestreamUrl(target) ? 'firestream' : null;
     if (!provider) return;
     const address = resolveUrl(target);
@@ -106,17 +107,17 @@ function filmoMirrors(html: string): Array<Mirror & { payload: string }> {
   const seen = new Set<string>();
   $('[data-provider-chip][data-movie-link-id]').each((_, element) => {
     const chip = $(element);
-    const providerName = (chip.find('.provider-chip__name').first().text().trim() || chip.attr('aria-label')?.trim())?.toUpperCase();
+    const providerName = (domText(chip.find('.provider-chip__name').first().toArray()).trim() || chip.attr('aria-label')?.trim())?.toUpperCase();
     const provider = providerName === 'VOE' ? 'voe' : providerName === 'BYSE' ? 'byse' : undefined;
     if (!provider) return;
     const id = chip.attr('data-movie-link-id');
     const payload = chip.attr('data-p');
     if (!id || !/^[\w-]{1,120}$/.test(id) || !payload || payload.length > 16_000) throw new ProviderError('invalid_response');
-    const language = sourceLanguage(chip.closest('.provider-row').text());
+    const language = sourceLanguage(domText(chip.closest('.provider-row').toArray()));
     const key = `${provider}:${id}:${language ?? ''}`;
     if (seen.has(key)) return;
     seen.add(key);
-    mirrors.push({ key, payload, provider, language, quality: quality(chip.find('.provider-chip__metadata').text()) });
+    mirrors.push({ key, payload, provider, language, quality: quality(domText(chip.find('.provider-chip__metadata').toArray())) });
   });
   if (mirrors.length > MAX_MIRRORS) throw new ProviderError('response_incomplete');
   return mirrors;
@@ -124,10 +125,11 @@ function filmoMirrors(html: string): Array<Mirror & { payload: string }> {
 
 function parseFilmo(html: string, url: string, identity: Identity): PageMatch | null {
   const $ = load(html);
-  const title = $('h1').first().text().trim();
-  const mainText = $('main').length ? $('main').text() : $('body').text();
+  const title = domText($('h1').first().toArray()).trim();
+  const main = $('main');
+  const mainText = domText((main.length ? main : $('body')).toArray());
   const year = yearValue(/Erscheinungsdatum:\s*(\d{4})/i.exec(mainText)?.[1])
-    ?? yearValue($('.ft-meta-label').toArray().map(element => $(element).text().trim()).find(text => /^\d{4}$/.test(text)));
+    ?? yearValue($('.ft-meta-label').toArray().map(element => domText([element]).trim()).find(text => /^\d{4}$/.test(text)));
   if (!title || year === undefined) throw new ProviderError('invalid_response');
   if (!titles(identity).some(alias => normalizeTitle(alias) === normalizeTitle(title)) || year !== identity.year) return null;
   const canonical = $('link[rel="canonical"]').attr('href');
@@ -157,7 +159,7 @@ async function resolveMirrors(page: PageMatch, resolver: (mirror: Mirror) => Pro
       if (seen.has(stream.url)) continue;
       seen.add(stream.url);
       const label = stream.title && stream.title !== 'VOE' ? stream.title : page.release ?? page.title;
-      const hoster = ({ voe: 'VOE', vidara: 'Vidara', vixeo: 'Vixeo', playmate: 'Playmate', flyfile: 'FlyFile', firestream: 'FireStream', byse: 'Byse' })[mirror.provider ?? 'voe'];
+      const hoster = ({ voe: 'VOE', vixeo: 'Vixeo', playmate: 'Playmate', flyfile: 'FlyFile', firestream: 'FireStream', byse: 'Byse' })[mirror.provider ?? 'voe'];
       const pageFallback = !mirror.provider || mirror.provider === 'voe';
       streams.push({ ...stream, title: `${label} • ${hoster}`, quality: stream.quality ?? (pageFallback ? mirror.quality : undefined),
         language: stream.language ?? (pageFallback ? mirror.language : undefined) });
@@ -203,7 +205,6 @@ export function createWebProviders(http: HttpClient, metadata: MetadataProvider)
       if (!page) return [];
       return resolveMirrors(page, mirror => {
         switch (mirror.provider) {
-          case 'vidara': return resolveVidara(http, mirror.url!, page.url, page.title);
           case 'vixeo': return resolveVixeo(http, mirror.url!, page.url, page.title);
           case 'playmate': return resolvePlaymate(http, mirror.url!, page.url, page.title);
           case 'flyfile': return resolveFlyfile(http, mirror.url!, page.url, page.title);

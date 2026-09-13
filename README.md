@@ -21,11 +21,11 @@ https://raw.githubusercontent.com/s09x/StreamNest/main/manifest.json
 The compiled files in `providers/` are included in the repository. Node.js and the
 development tools are not needed to use the providers in Nuvio.
 
-Version 0.1.3 corrects another Nuvio Mobile URL-bridge incompatibility: absent
-query and fragment values were exposed as `?` and `#`, causing valid Filmpalast
-and Filmo links to be rejected. It also reduces Xtream catalog requests when the
-server can return a complete list. After updating, refresh the repository and
-check that the installed providers show **0.1.3**.
+Version 0.1.4 replaces Filmo's recursive page-text extraction after an iOS stack
+overflow report and excludes VIDARA from Filmpalast. It retains 0.1.3's native
+URL compatibility corrections and faster supported Xtream catalog lookup. After
+updating, refresh the repository and check that the installed providers show
+**0.1.4**.
 
 ## Providers
 
@@ -35,8 +35,9 @@ check that the installed providers show **0.1.3**.
 | Filmo | Movies through VOE and Byse | None |
 | Xtream VOD | Movies and series from your account | Host, username, password in native provider settings |
 
-Filmpalast supports the six hoster families observed in the inspected movie and
-episode pages: **VOE, VIDARA, Vixeo, FireStream, FlyFile and Playmate**. Mirrors are
+Filmpalast uses **VOE, Vixeo, FireStream, FlyFile and Playmate**. VIDARA links,
+including `odysseusa.cc` and `vidaraa.cc`, are intentionally skipped without
+hoster requests. Mirrors are
 resolved with at most three concurrent workers. A failing mirror does not suppress
 working alternatives, and their display order remains stable.
 
@@ -54,7 +55,7 @@ failure. See [native compatibility](docs/native-compatibility.md) for client
 capabilities and [hoster verification](docs/hosters.md) for observed results.
 
 Some upstream files can still be deleted or blocked. For example, the inspected
-Doctor Strange 2 VOE file was missing while VIDARA and FlyFile worked; the sampled
+Doctor Strange 2 VOE file was missing while FlyFile worked; the sampled
 Playmate CDN returned a service-level restriction. Such failures do not produce
 invented playable URLs. Live TV and MediathekViewWeb are outside this repository's
 movie/series scope.
@@ -141,8 +142,9 @@ emulate the entire iOS networking stack or the app's UI.
 
 `scripts/check-enhanced.mjs` additionally loads the original JavaScript bindings
 from a local Nuvio Enhanced checkout and executes them with the built provider in
-QuickJS. It adapts native calls to Node and serializes HTTP requests like the
-inspected bridge. Use `--client-root` to select the checkout. It cannot validate
+QuickJS. It adapts native calls to Node and blocks on HTTP requests like the
+inspected bridge. Use `--client-root` to select the checkout and `--client-ref 0.4.14`
+to read that locally available Git revision. It cannot validate
 the installed app, its UI, or the iPhone's network connection.
 
 See [verification](docs/verification.md) for executed checks and their limits.
