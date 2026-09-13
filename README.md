@@ -21,11 +21,11 @@ https://raw.githubusercontent.com/s09x/StreamNest/main/manifest.json
 The compiled files in `providers/` are included in the repository. Node.js and the
 development tools are not needed to use the providers in Nuvio.
 
-Version 0.1.8 adds **Huhu** for movies and series through VOE and Vixeo/Vidsonic.
-It retains 0.1.7's einschalten, HDFilme and MegaKino providers, the Filmo stack
-correction, Filmpalast's VIDARA exclusion, native URL compatibility corrections,
-and faster supported Xtream catalog lookup. After updating, refresh the
-repository and check that the installed providers show **0.1.8**.
+Version 0.1.9 expands **Huhu** to the hoster families in the current source census,
+retains separately offered media variants, and makes source quality labels
+visible in Nuvio. Every offered link is accounted for in its diagnostic report.
+It retains the other six providers and their earlier corrections. After updating,
+refresh the repository and check that the installed providers show **0.1.9**.
 
 ## Providers
 
@@ -36,7 +36,7 @@ repository and check that the installed providers show **0.1.8**.
 | einschalten | Movies through DoodStream | None; native HTTP/2 support required |
 | HDFilme | Movies through the embedded MeineCloud player and VOE | None |
 | MegaKino | Movies and exact series episodes through VOE and FireStream | None |
-| Huhu | Movies and exact series episodes through VOE and Vixeo/Vidsonic | None |
+| Huhu | Movies and exact series episodes through the hosters below | None; some hosters require native HTTP/2 or secure randomness |
 | Xtream VOD | Movies and series from your account | Host, username, password in native provider settings |
 
 Filmpalast uses **VOE, Vixeo, FireStream, FlyFile and Playmate**. VIDARA links,
@@ -94,13 +94,23 @@ See [MegaKino verification](docs/verification.md#megakino-integration) for the
 movie and episode checks, search limits, and native runtime results.
 
 Huhu uses the site's published MediaURL interface and accepts TMDB or IMDb IDs.
-It validates the returned identity and checks a series episode against the actual
-episode list before requesting its mirrors. Source language labels and published
-subtitles are retained; HLS resolution takes precedence over an upload filename.
-Duplicate links share resolution work, at most three mirrors run concurrently,
-and successful alternatives survive individual failures. Only **VOE and
-Vixeo/Vidsonic** are supported for this source. Other listed hosters are skipped;
-see [hoster coverage](docs/hosters.md) for the observed limits.
+It validates identity and exact episodes, then processes every returned source
+row. Resolvers cover **VOE, Vixeo/Vidsonic, DoodStream, Veev, Supervideo, Vidoza,
+Mixdrop, Streamtape, LuluStream and Filemoon/Byse**. All separately published
+media URLs are retained, including multiple Veev, Vidoza and Byse variants.
+Duplicate links share resolution work and at most three mirrors run concurrently.
+
+Source labels such as `1080p` remain visible in the stream name. When a checked
+HLS playlist differs, the name distinguishes `Source: 1080p` from `Video: 720p`.
+Upload filenames are labelled as uploads; they do not establish the resolution
+of a transcoded MP4. Source languages and published subtitles are retained.
+
+An implemented resolver does not make a deleted file or blocked CDN available.
+The same-runtime `getSourceReport()` export records every source as resolved,
+unavailable, blocked, unsupported or failed; the native checker includes this
+report without repeating discovery. `resolved` means a media address was
+obtained, not that physical-device playback was tested. See
+[hoster coverage](docs/hosters.md#huhu-source-accounting) for the observed limits.
 
 Byse performs its published server attestation and automatic proof-of-work and
 authenticates the returned playback data before using it. This requires a secure

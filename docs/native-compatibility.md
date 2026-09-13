@@ -138,13 +138,27 @@ coordinates. Xtream exports `onSettings()` and declares `hasSettings: true`.
 The settings keys are `host`, `username`, and `password`.
 
 Huhu declares no settings. It uses JSON POST requests to its own `item` and
-`source` endpoints, then the existing VOE and Vixeo/Vidsonic resolvers. This path
-needs neither Filmo's cookie/CSRF handoff nor Byse's secure-randomness feature.
-Its source responses are limited to 1,048,576 characters; incomplete or oversized
-JSON is an explicit failure. Source selection permits at most 256 rows and 32
-distinct supported mirrors rather than silently truncating an oversized list.
-The provider runs with standard and modeled Mobile URL bindings in QuickJS at a
-256 KiB stack limit. Physical-device playback still requires user verification.
+`source` endpoints, then routes every source to its hoster resolver. DoodStream
+and some other source paths need the native HTTP/2 transport described above;
+Filemoon/Byse additionally uses the existing secure-randomness and attestation
+implementation. The other hoster parsers require no browser session or script
+execution. Source responses are limited to 1,048,576 characters and 256 rows;
+an excess is an explicit failure. The former separate 32-mirror ceiling is gone.
+
+Nuvio Enhanced's `PluginRuntimeResult.toStreamItem()` uses `name ?: title` and
+does not preserve a second description from `title`. Huhu therefore places the
+complete source/hoster labels in both fields. Declared source quality remains
+visible even when the checked HLS dimensions differ. Tests execute the built
+provider with standard and modeled Mobile URL bindings at a 256 KiB stack limit.
+
+The synchronous `getSourceReport()` export reads the most recent lookup in the
+same JavaScript instance. It includes the request identity, source indices,
+hoster names, source tags, languages, resolution outcomes and duplicate links.
+It makes no requests and contains no media URLs or access tokens. A later invalid
+request clears the report; a fresh native runtime has no previous report. Nuvio's
+current plugin result model has no separate non-playable source-status row, so
+unresolved links are reported by the checker rather than inserted as fake media.
+Physical-device playback and UI rendering still require user verification.
 
 The providers read Nuvio's `fetch`, URL APIs, and `SCRAPER_SETTINGS`. Parser and
 decoder dependencies are bundled. They do not use Node filesystem/network APIs,

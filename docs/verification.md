@@ -6,6 +6,11 @@ provider/server combination works.
 
 ## Automated checks
 
+The 0.1.9 `npm run check` on Node.js 24.19.0 passed **270 tests** with zero
+failures. The existing opt-in public network test remained skipped. TypeScript,
+all seven generated bundles, native exports, ES2016 syntax and QuickJS workflows
+passed. The run used the same process-local memory limits documented below.
+
 The combined 0.1.8 `npm run check` on Node.js 24.19.0 passed **237 tests** with
 zero failures and the existing opt-in network test skipped. All seven providers
 and the manifest were rebuilt, preserving the prior providers and HTTP/2
@@ -502,6 +507,62 @@ retained.
 
 ## Huhu integration
 
+### Expanded hoster and label checks
+
+Version 0.1.9 replaces the earlier two-hoster selection with a resolver path and
+diagnostic outcome for every source row. The native name/title projection was
+also inspected: Enhanced uses `name ?: title`, so the earlier generic Huhu name
+hid source labels placed only in `title`. The provider now sends the complete
+display text in both fields. Tests preserve `Source: 1080p` alongside a measured
+`Video: 720p`, rather than discarding one of these distinct facts.
+
+The expanded direct HTTP/2 census on 2026-09-13 returned the following results.
+Counts describe parsed media addresses; they do not establish playback for every
+MP4. No source row remained pending or was silently dropped by a hoster filter.
+
+| Request | Offered rows | Media addresses | Important observed boundary |
+| --- | --- | --- | --- |
+| Doctor Strange 2 | 14 | 4 | Veev metadata offered 720p but its CDN returned 403. The separately tagged Veev 1080p file and legacy Dood `/w/` entries were unavailable. |
+| Inception | 15 | 5 | Vixeo HLS and Dood/Mixdrop addresses resolved; other source routes failed or were unavailable. |
+| Matrix | 12 | 6 | Vixeo HLS and several Dood addresses resolved. |
+| Dune Part Two | 21 | 5 | Several Dood addresses resolved; other rows were deleted, blocked or failed. |
+| Interstellar | 15 | 2 | Vixeo and Mixdrop addresses resolved; later Dood requests were blocked. |
+| The Dark Knight | 14 | 2 | Vixeo and Mixdrop addresses resolved. |
+| Fallout S01E01 | 21 | 0 | Dood requests were blocked/unavailable and VOE routes failed during this run. |
+| Fallout S02E01 | 18 | 1 | Streamtape resolved; Lulu's media endpoint blocked access. |
+| Dark S01E01 | 12 | 1 | Filemoon/Byse returned valid 1280x640 HLS. |
+| Game of Thrones S06E10 | 20 | 1 | Filemoon/Byse returned valid 720p HLS. |
+
+The 13 domains were `veev.to`, `supervideo.cc`, `vidoza.net`, `dood.to`,
+`voe.sx`, `dood.yt`, `mixdrop.ps`, `vidsonic.net`, `dood.li`,
+`doodstream.com`, `streamtape.com`, `luluvdo.com`, and `filemoon.to`.
+Later blocked requests are recorded as observations; the census does not prove
+why the hoster changed its response or promise permanent availability.
+
+Veev's published player bundle was inspected as data. Its rotating string table
+was decoded statically, without executing the bundle. The normal `gi` response,
+final `fc` assignment, LZW data, reversal/hex layers and individual video heights
+were traced. Its ordinary `gv` call succeeded but did not remove the observed
+CDN 403. HTTP/1.1 and HTTP/2, normal referer variants and video request headers
+did not establish successful media access for that sample. The browser-control
+tool failed to initialize, so no browser playback result is claimed.
+
+Source reports are available in `scripts/check-native.mjs` output for Huhu.
+The synchronous getter reads the same lookup without repeating source requests
+or retaining media URLs/tokens. Fixtures also cover more than 32 mirrors, all
+Veev/Byse variants, source labels in the actual native display field, duplicate
+provenance, unavailable and unknown sources, signed queries, native URL quirks,
+optional HTML end tags, genuinely incomplete responses and data-only decoding.
+
+The final 0.1.9 bundle also ran through the original Enhanced 0.4.14 bindings
+with HTTP/2 and automatically followed redirects. Matrix returned six addresses
+in 14.8 seconds with zero JavaScript runtime errors. The returned Vixeo name
+contained both `Source: 1080p` and `Video: 720p`, while its quality field was
+`720p`. This verifies the source label survives the native result boundary;
+physical UI rendering and playback are still outside that diagnostic.
+
+### Initial 0.1.7 and 0.1.8 checks
+
 Direct checks on 2026-09-13 followed the public
 [Huhu client script](https://huhu.to/assets/index-CyRgdH9q.js). The site sends JSON
 POST requests with `language: "de"` and `region: "DE"` to
@@ -517,11 +578,11 @@ validates the returned media type and IDs, requires a populated title, and uses
 only actual episode-list entries to authorize a series source lookup.
 
 The source endpoint returned ordinary hoster links, not native playable URLs.
-The provider resolves only VOE and Vixeo/Vidsonic, retains source language/tag
-metadata and published subtitles, deduplicates equivalent links, and runs no
-more than three mirrors concurrently. It rejects oversized or malformed API
+The initial provider resolved only VOE and Vixeo/Vidsonic, retained source language/tag
+metadata and published subtitles, deduplicated equivalent links, and ran no
+more than three mirrors concurrently. It rejected oversized or malformed API
 responses and isolates individual mirror failures. Other source-listed hosters
-remain outside its implemented coverage.
+were outside that initial implementation's coverage; the expansion above supersedes it.
 
 The 18 Huhu tests passed after TypeScript validation and a fresh native build.
 They include four complete QuickJS workflows covering TMDB movies and IMDb

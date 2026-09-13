@@ -1,10 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { getHuhuStreams } from '../src/native/huhu.js';
+import { getHuhuStreams, inspectHuhuStreams } from '../src/native/huhu.js';
 import { ProviderError } from '../src/native/errors.js';
 import type { ContentRequest, HttpClient, NativeStream, RequestOptions, TextResponse } from '../src/native/types.js';
 import { createNativeRuntime, type FixtureRoute } from './helpers/native-runtime.js';
+import { veevApiUrl, veevInfo, veevPage, veevPageUrl } from './helpers/veev-fixture.js';
 
 const origin = 'https://huhu.to';
 const itemUrl = `${origin}/mediaurl-item.json`;
@@ -70,9 +71,10 @@ function setup(options: { item?: unknown; sources?: unknown; handle?: (call: Cal
 test('Huhu resolves a TMDB movie through both hosters with real HLS quality, languages and subtitle headers', async () => {
   const fixture = setup({ sources: [source(voe, ['de'], 'HD'), source(vixeo, ['de'])] });
   const streams = await getHuhuStreams(fixture.http, movie);
-  assert.deepEqual(streams.map(stream => [stream.name, stream.quality, stream.language]), [
-    ['Huhu • VOE', '720p', 'de / en'], ['Huhu • Vixeo', '720p', 'de / en'],
+  assert.deepEqual(streams.map(stream => [stream.name?.split('Huhu / ')[1], stream.quality, stream.language]), [
+    ['VOE', '720p', 'de / en'], ['Vixeo', '720p', 'de / en'],
   ]);
+  assert.ok(streams.every(stream => stream.name === stream.title), 'Nuvio must not replace the metadata title with a generic provider name');
   assert.match(streams[0]!.title, /HD.*1280x720.*VOE/);
   assert.equal(streams[0]!.subtitles?.[0]?.url, 'https://captions.example.invalid/de.vtt?fixture=one%2Btwo');
   assert.equal(streams[0]!.subtitles?.[0]?.language, 'de');
@@ -153,16 +155,15 @@ test('Huhu treats HTTP-200 API errors, redirects, truncation and response limits
   }
 });
 
-test('Huhu distinguishes valid empty and unsupported source lists from malformed or excessive responses', async () => {
-  for (const sources of [[], [source('https://dood.to/e/FixtureFile01')], [{ type: 'torrent', url: 'magnet:synthetic' }]]) {
-    const fixture = setup({ sources });
-    assert.deepEqual(await getHuhuStreams(fixture.http, movie), []);
-    assert.equal(fixture.calls.length, 2);
-  }
+test('Huhu distinguishes empty lists, explicitly unsupported sources and malformed or excessive responses', async () => {
+  const empty = setup({ sources: [] });
+  assert.deepEqual(await getHuhuStreams(empty.http, movie), []);
+  assert.equal(empty.calls.length, 2);
   for (const [sources, code] of [[{}, 'invalid_response'], [null, 'invalid_response'], ['[{', 'response_incomplete'],
+    [[source('https://unsupported.example.invalid/watch/fixture')], 'unsupported_hoster'],
+    [[{ type: 'torrent', url: 'magnet:synthetic' }], 'unsupported_hoster'],
     [[{ type: 'url' }], 'invalid_response'], [[source('https://synthetic:secret@voe.sx/e/FixtureFile01')], 'invalid_response'],
-    [Array.from({ length: 257 }, () => source(voe)), 'response_incomplete'],
-    [Array.from({ length: 33 }, (_, index) => source(`https://voe.sx/e/Fixture${String(index).padStart(5, '0')}`)), 'response_incomplete']] as const) {
+    [Array.from({ length: 257 }, () => source(voe)), 'response_incomplete']] as const) {
     const fixture = setup({ sources });
     await assert.rejects(getHuhuStreams(fixture.http, movie), failure(code));
     assert.equal(fixture.calls.length, 2);
@@ -176,7 +177,7 @@ test('Huhu deduplicates VOE watch/embed links, retains declared languages and ta
   assert.equal(streams.length, 1);
   assert.equal(streams[0]!.quality, undefined);
   assert.equal(streams[0]!.language, 'de / en');
-  assert.match(streams[0]!.title, /HD \| SUB/);
+  assert.match(streams[0]!.name!, /Source: HD \| Source: SUB/);
   assert.equal(fixture.calls.filter(call => call.url.startsWith('https://voe.sx/')).length, 1);
   const unknown = setup({ sources: [source(voe)], handle: fixtureCall => fixtureCall.url.startsWith('https://media.example.invalid/')
     ? response(fixtureCall.url, '#EXTM3U\n#EXTINF:10,\nsegment.ts\n#EXT-X-ENDLIST\n') : undefined });
@@ -228,7 +229,53 @@ test('Huhu rejects an invalid HLS mirror while preserving another playable hoste
   const fixture = setup({ sources: [source(voe), source(vixeo)], handle: ({ url }) => url.includes('/voe.sx/')
     ? response(url, '<html><body>Expired</body></html>') : undefined });
   const streams = await getHuhuStreams(fixture.http, movie);
-  assert.deepEqual(streams.map(stream => stream.name), ['Huhu • Vixeo']);
+  assert.deepEqual(streams.map(stream => stream.name?.split('Huhu / ')[1]), ['Vixeo']);
+});
+
+test('Huhu resolves more than the old 32-mirror limit and reports every input row', async () => {
+  const sources = Array.from({ length: 40 }, (_, index) => source(`https://voe.sx/e/Fixture${String(index).padStart(5, '0')}`, ['de']));
+  const fixture = setup({ sources });
+  const result = await inspectHuhuStreams(fixture.http, movie);
+  assert.equal(result.streams.length, 40);
+  assert.equal(result.sources.length, 40);
+  assert.ok(result.sources.every(item => item.status === 'resolved'));
+  assert.equal(fixture.calls.length, 82);
+});
+
+test('Huhu keeps source 1080p labels visible when delivered HLS dimensions differ', async () => {
+  const fixture = setup({ sources: [source(voe, ['de'], '1080p')] });
+  const [stream] = await getHuhuStreams(fixture.http, movie);
+  assert.equal(stream?.quality, '720p');
+  assert.match(stream!.name!, /Source: 1080p/);
+  assert.match(stream!.name!, /Video: 720p/);
+  assert.equal(stream!.name, stream!.title, 'This is the exact field Nuvio maps to the visible stream name');
+});
+
+test('Huhu reports unavailable, unsupported, malformed and duplicate entries without suppressing successful streams', async () => {
+  const legacyDood = 'https://dood.yt/w/AbCd123456';
+  const fixture = setup({ sources: [source(voe, ['de'], '1080p'), source(legacyDood, ['de'], '1080p'),
+    source('https://unsupported.example.invalid/watch/fixture', ['de']), null, source(voe.replace('/e/', '/'), ['en'], 'HD')],
+    handle: ({ url }) => url === legacyDood ? response(url, 'File not found', 404) : undefined });
+  const result = await inspectHuhuStreams(fixture.http, movie);
+  assert.equal(result.streams.length, 1);
+  assert.deepEqual(result.sources.map(item => item.status), ['resolved', 'unavailable', 'unsupported', 'failed', 'resolved']);
+  assert.equal(result.sources[1]!.tag, '1080p');
+  assert.equal(result.sources[1]!.hoster, 'DoodStream');
+  assert.equal(result.sources[4]!.duplicateOf, 1);
+  assert.equal(fixture.calls.filter(call => call.url.startsWith('https://voe.sx/')).length, 1);
+  assert.ok(!JSON.stringify(result.sources).includes('https://'), 'Diagnostics do not expose media URLs or tokens');
+});
+
+test('Huhu preserves all Veev video variants and the source quality label', async () => {
+  const fixture = setup({ sources: [source(veevPageUrl, ['de'], '1080p')], handle: ({ url }) => {
+    if (url === veevPageUrl) return response(url, veevPage());
+    if (url === veevApiUrl) return response(url, veevInfo());
+    return undefined;
+  } });
+  const result = await inspectHuhuStreams(fixture.http, movie);
+  assert.deepEqual(result.streams.map(stream => stream.quality), ['720p', '1080p']);
+  assert.ok(result.streams.every(stream => stream.name?.includes('Source: 1080p')));
+  assert.equal(result.sources[0]!.streamCount, 2);
 });
 
 const bundle = () => readFile(new URL('../providers/huhu.js', import.meta.url), 'utf8');
@@ -279,5 +326,30 @@ test('Huhu built bundle rejects API errors and conflicting episodes without expo
       assert.equal(result.error.code, 'request_failed');
       assert.equal(result.error.message, 'StreamNest: a source request failed.');
     }
+  } finally { runtime.dispose(); }
+});
+
+for (const mobileUrl of [false, true]) test(`built Huhu preserves multiple Veev variants, visible labels and complete source reports (Mobile: ${mobileUrl})`, async () => {
+  const legacy = 'https://dood.yt/w/AbCd123456';
+  const runtime = await createNativeRuntime(await bundle(), { mobileUrl, maxStackSize: 256 * 1024, routes: [
+    route(itemUrl, movieItem, 'POST'), route(sourceUrl, [source(veevPageUrl, ['de'], '1080p'), source(legacy, ['de'], '1080p')], 'POST'),
+    route(veevPageUrl, veevPage()), route(veevApiUrl, veevInfo()), { ...route(legacy, 'File not found'), status: 404 },
+  ] });
+  try {
+    const result = await runtime.run(`module.exports.getStreams('901','movie')`);
+    assert.equal(result.ok, true, result.ok ? undefined : result.error.message);
+    if (!result.ok) return;
+    const streams = result.value as NativeStream[];
+    assert.deepEqual(streams.map(stream => stream.quality), ['720p', '1080p']);
+    assert.ok(streams.every(stream => stream.name?.includes('Source: 1080p') && stream.name === stream.title));
+    const requests = runtime.value('__requests.length');
+    const report = runtime.value('module.exports.getSourceReport()') as { request: ContentRequest; streamCount: number; sources: Array<{ status: string }> };
+    assert.equal(report.request.id, '901');
+    assert.equal(report.streamCount, 2);
+    assert.deepEqual(report.sources.map(source => source.status), ['resolved', 'unavailable']);
+    assert.equal(runtime.value('__requests.length'), requests, 'The report does not perform another lookup');
+    assert.ok(!JSON.stringify(report).includes('https://'));
+    await runtime.run(`module.exports.getStreams('invalid','movie')`);
+    assert.equal(runtime.value('module.exports.getSourceReport()'), null, 'A rejected later request cannot expose stale diagnostics');
   } finally { runtime.dispose(); }
 });

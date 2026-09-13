@@ -3,7 +3,7 @@
 StreamNest uses five of the six hoster families found in the inspected Filmpalast
 movie and episode pages, and both hosters found in the inspected Filmo pages.
 einschalten additionally uses DoodStream's published MP4 route with HTTP/2.
-Huhu supports the VOE and Vixeo/Vidsonic families returned by its MediaURL API.
+Huhu routes all source rows through the resolver families documented below.
 VIDARA is deliberately excluded from Filmpalast since 0.1.4 at the user's request.
 This is a dated source census, not a claim that upstream sites cannot add hosters.
 
@@ -23,7 +23,43 @@ This is a dated source census, not a claim that upstream sites cannot add hoster
 | MegaKino / FireStream (Orion) | Direct `data-link`, public video data and resolve POST, then HLS validation | Die 5. Welle returned a valid media playlist. It did not declare dimensions or audio groups, so no quality tier or language inventory is invented. |
 | Huhu / VOE | Validated movie/episode identity, direct public hoster link, normal VOE redirects/data and HLS inspection | Inception and Fallout S01E01 produced valid HLS. The Inception upload label says 1080p while the delivered master is 720p; the provider reports the manifest resolution. |
 | Huhu / Vixeo | Existing `vidsonic.net` / `vixeo.io` decoder and HLS inspection | Inception and Matrix produced 720p HLS through Vidsonic. |
-| Huhu / other hosters | Not offered by this provider; no requests to unsupported hosters during discovery | The sampled list also contained Dood, Vidoza, Supervideo, Mixdrop, Veev, Streamtape and LuluVdo. A direct Supervideo probe returned Cloudflare 403 and the Vidoza sample returned 404. The other families were inventoried without a complete native playback check. |
+| Huhu / DoodStream | Published `/e/`, `/d/` and historical `/w/` links, observed domain aliases, same-file redirects and the existing Dood protocol | Several movie addresses resolved over HTTP/2. Historical ten-character `/w/` links returned explicit file-not-found responses. Later requests in the larger census encountered access blocks. |
+| Huhu / Veev | Final bootstrap key, bounded LZW/hex data decoding, ordinary `gi` API, all video variants and published captions | Doctor Strange 2's first link returned a 720p MP4 address; the CDN rejected range requests with HTTP 403. Its separately labelled 1080p link returned API code 404 and `file_status: deleted`. |
+| Huhu / Supervideo | Bounded packed string tables and JavaScript data literals, complete player scripts, all sources and captions | HTTP/2 reached the player. The sampled HLS addresses led to a parked/HTML endpoint instead of an HLS manifest and were rejected. |
+| Huhu / Vidoza | All entries in the published `sourcesCode` array, including explicit `res` values | The parsing contract is covered by fixtures; sampled source files and the checked corresponding embed routes returned 404. No successful live Vidoza playback is claimed. |
+| Huhu / Mixdrop | Same-file watch-to-embed handoff, current `miixdrop.top` alias, packed `MDCore.wurl` data | Movie MP4 addresses resolved, including the English Doctor Strange 2 entry. |
+| Huhu / Streamtape | Same-file signed `get_video` URL reconstructed from literal concatenation/substring operations | Fallout S02E01 produced a media address; the Dark sample was unavailable. No hoster JavaScript is executed. |
+| Huhu / LuluStream | Same-file player iframe before preview data, packed sources and HLS inspection | Player data was extracted. The sampled Fallout S02E01 HLS endpoint rejected access. |
+| Huhu / Filemoon | Legacy packed players or the verified current Byse API, all returned media variants | Dark S01E01 and Game of Thrones S06E10 produced valid HLS at 1280x640 and 720p, respectively, through the ordinary attestation/proof flow. |
+
+## Huhu source accounting
+
+The 2026-09-13 census contained 162 source rows across ten movie/episode requests
+and 13 source domains. Every row received a resolution outcome. The resolver
+registry covered all domains found in those requests; this is not an exhaustive
+inventory of every title or future hoster Huhu may add.
+
+The source's `tag` is retained as a source label, including `1080p`, `800p`,
+`2160p` and generic `HD`. A generic HD label is not converted into an invented
+pixel height. Checked HLS dimensions and hoster-declared video heights are
+reported separately from upload labels. Multiple variants are not reduced to
+the first result; exact duplicate media URLs are deduplicated.
+
+`getSourceReport()` accounts for malformed, unsupported, blocked and unavailable
+rows as well as successful resolutions. Unknown future hosters are explicit
+`unsupported` entries. The current native result model accepts media URLs and
+has no dedicated disabled/error row; a hoster HTML page is never substituted for
+a playable URL merely to inflate the stream count. MP4 addresses obtained from
+player data are not downloaded during discovery, so a `resolved` status alone
+does not establish media access. In particular, Veev's observed CDN 403 remains
+a real limitation despite successful metadata decoding.
+
+The packed-player parsers use bounded JSON5 literals and a bounded public string
+table decoder. They do not evaluate player scripts, advertisements or arbitrary
+JavaScript expressions. Veev's final key assignment takes precedence over the
+initial decoy. Streamtape permits only the observed literal concatenation and
+substring operations. Dood and Filemoon retain their existing native transport,
+randomness and protocol requirements.
 
 ## einschalten and DoodStream
 

@@ -21,10 +21,34 @@ function fixture(handler: (url: string, options: RequestOptions) => Reply | Prom
 function failure(code: string) { return (error: unknown) => error instanceof ProviderError && error.code === code; }
 
 test('Dood recognizes the observed hoster aliases and rejects unrelated or credential-bearing URLs', () => {
-  for (const host of ['vide0.net', 'playmogo.com', 'doodstream.com']) assert.equal(isDoodUrl(`https://${host}/e/abcdefgh1234`), true);
+  for (const host of ['vide0.net', 'playmogo.com', 'doodstream.com', 'dood.to', 'dood.yt', 'dood.li']) {
+    assert.equal(isDoodUrl(`https://${host}/e/abcdefgh1234`), true);
+    assert.equal(isDoodUrl(`https://${host}/d/abcdefgh1234`), true);
+  }
+  assert.equal(isDoodUrl('https://dood.yt/w/AbCd123456'), true);
   for (const url of ['https://vide0.net.attacker.invalid/e/abcdefgh1234', 'https://user:secret@vide0.net/e/abcdefgh1234',
     'https://vide0.net:444/e/abcdefgh1234', 'https://vide0.net/e/abcdefgh1234#other', 'https://vide0.net/e/abcdefgh123',
-    'https://vide0.net/e/ABCDEFGH1234', 'https://vide0.net/d/abcdefgh1234', 'javascript:alert(1)']) assert.equal(isDoodUrl(url), false, url);
+    'https://vide0.net/e/ABCDEFGH1234', 'https://dood.yt/w/short', 'javascript:alert(1)']) assert.equal(isDoodUrl(url), false, url);
+});
+
+test('Dood download aliases request the same-file embed and retain signed query values', async () => {
+  const fixtureData = fixture((url) => {
+    if (url === 'https://dood.to/e/abcdefgh1234?fixture=one%2Btwo') return { text: doodPage(), url: doodFinal };
+    assert.equal(url, 'https://playmogo.com' + doodPass);
+    return { text: doodPrefix };
+  });
+  const stream = await resolveDood(fixtureData.http, 'https://dood.to/d/abcdefgh1234?fixture=one%2Btwo', sourcePage, 'Fixture movie');
+  assert.equal(stream.headers?.Referer, doodFinal);
+  assert.equal(fixtureData.calls.length, 2);
+});
+
+test('Dood can preserve an upload label without claiming its filename resolution is the delivered quality', async () => {
+  const fixtureData = fixture((url) => url === doodEmbed
+    ? { text: doodPage().replace(/<title>[^<]*<\/title>/, '<title>Fixture.Movie.1080p.WEB.mkv - DoodStream</title>'), url: doodFinal }
+    : { text: doodPrefix });
+  const stream = await resolveDood(fixtureData.http, doodEmbed, sourcePage, 'Verified movie', { includeUploadTitle: true });
+  assert.match(stream.title, /Upload: Fixture\.Movie\.1080p\.WEB\.mkv/);
+  assert.equal(stream.quality, undefined);
 });
 
 test('Dood reads only the public player assignment and preserves case-sensitive tokens without executing scripts', () => {

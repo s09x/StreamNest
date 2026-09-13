@@ -68,11 +68,13 @@ try {
   if (mediaCheck === 'mp4') for (const stream of streams) media.push(await verifyMp4Stream(stream));
   const ok = mediaCheck === 'none' || (streams.length > 0 && media.every(result => result.ok));
   console.log(JSON.stringify({ ok, provider, redirects, urlRuntime, transport, elapsedMs: Date.now() - start, stats,
+    ...(provider === 'huhu' ? { sourceReport: context.module.exports.getSourceReport?.() } : {}),
     ...(mediaCheck === 'mp4' ? { media } : {}),
     streams: streams.map(stream => ({ name: stream.name, quality: stream.quality, language: stream.language, subtitleCount: stream.subtitles?.length ?? 0 })) }));
   if (!ok) process.exitCode = 1;
 } catch (error) {
   console.log(JSON.stringify({ ok: false, provider, transport, error: typeof error.code === 'string' ? error.code : 'request_failed',
+    ...(provider === 'huhu' ? { sourceReport: context.module.exports.getSourceReport?.() } : {}),
     elapsedMs: Date.now() - start, stats, lastOperations: operations.slice(-6) }));
   process.exitCode = 1;
 } finally {

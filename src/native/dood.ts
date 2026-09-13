@@ -17,8 +17,9 @@ function fileId(value: string): string | undefined {
   try {
     const url = resolveUrl(value);
     if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.port || url.hash
-      || !/^(?:www\.)?(?:vide0\.net|playmogo\.com|doodstream\.com)$/.test(url.hostname)) return undefined;
-    return /^\/e\/([a-z0-9]{12})\/?$/.exec(url.pathname)?.[1];
+      || !/^(?:www\.)?(?:vide0\.net|playmogo\.com|doodstream\.com|dood\.(?:to|yt|li))$/.test(url.hostname)) return undefined;
+    return /^\/(?:e|d)\/([a-z0-9]{12})\/?$/.exec(url.pathname)?.[1]
+      ?? /^\/w\/([A-Za-z0-9]{10})\/?$/.exec(url.pathname)?.[1];
   } catch { return undefined; }
 }
 
@@ -53,13 +54,18 @@ export function extractDoodConfig(html: string): DoodConfig {
   return config;
 }
 
-export async function resolveDood(http: HttpClient, embedUrl: string, sourcePage: string, title: string): Promise<NativeStream> {
+export async function resolveDood(http: HttpClient, embedUrl: string, sourcePage: string, title: string,
+  options: { includeUploadTitle?: boolean } = {}): Promise<NativeStream> {
   const expectedId = fileId(embedUrl);
   if (!expectedId) throw new ProviderError('invalid_response');
+  // The public download route embeds the same file through /e/. Historical
+  // /w/ links keep their own identity and must be checked as published.
+  const source = resolveUrl(httpUrl(embedUrl));
+  const requested = source.pathname.startsWith('/d/') ? source.origin + source.pathname.replace(/^\/d\//, '/e/') + source.search : source.href;
   const referer = httpUrl(sourcePage);
   // RELOAD asks the ordinary player to obtain fresh data. Retry that instruction once.
   for (let attempt = 0; attempt < 2; attempt++) {
-    const opened = await http.request(httpUrl(embedUrl), { headers: { 'User-Agent': DOOD_USER_AGENT, Referer: referer } });
+    const opened = await http.request(requested, { headers: { 'User-Agent': DOOD_USER_AGENT, Referer: referer } });
     const html = responseText(opened);
     if (fileId(opened.url) !== expectedId) throw new ProviderError('invalid_response');
     const config = extractDoodConfig(html);
@@ -76,7 +82,12 @@ export async function resolveDood(http: HttpClient, embedUrl: string, sourcePage
     let suffix = '';
     for (let index = 0; index < 10; index++) suffix += RANDOM_ALPHABET.charAt(Math.floor(Math.random() * RANDOM_ALPHABET.length));
     const url = httpUrl(`${prefix}${suffix}?token=${config.token}&expiry=${Date.now()}`);
-    return { url, title: `${title} • DoodStream`, headers };
+    let label = title;
+    if (options.includeUploadTitle) {
+      const upload = domText(load(html)('title').toArray()).replace(/\s*[-|]\s*DoodStream\s*$/i, '').trim();
+      if (upload && upload !== title && upload.length <= 1000 && !/[\r\n\0]|https?:\/\//i.test(upload)) label += ` | Upload: ${upload}`;
+    }
+    return { url, title: `${label} • DoodStream`, headers };
   }
   throw new ProviderError('request_failed');
 }

@@ -1,13 +1,13 @@
 {
   "name": "StreamNest",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Native Nuvio providers for German movies and series, including user-configured Xtream VOD.",
   "author": "s09x",
   "scrapers": [
     {
       "id": "streamnest-filmpalast",
       "name": "Filmpalast",
-      "version": "0.1.8",
+      "version": "0.1.9",
       "filename": "providers/filmpalast.js",
       "supportedTypes": [
         "movie",
@@ -21,7 +21,7 @@
     {
       "id": "streamnest-filmo",
       "name": "Filmo",
-      "version": "0.1.8",
+      "version": "0.1.9",
       "filename": "providers/filmo.js",
       "supportedTypes": [
         "movie"
@@ -34,7 +34,7 @@
     {
       "id": "streamnest-einschalten",
       "name": "einschalten",
-      "version": "0.1.8",
+      "version": "0.1.9",
       "filename": "providers/einschalten.js",
       "supportedTypes": [
         "movie"
@@ -47,7 +47,7 @@
     {
       "id": "streamnest-hdfilme",
       "name": "HDFilme",
-      "version": "0.1.8",
+      "version": "0.1.9",
       "filename": "providers/hdfilme.js",
       "supportedTypes": [
         "movie"
@@ -60,7 +60,7 @@
     {
       "id": "streamnest-megakino",
       "name": "MegaKino",
-      "version": "0.1.8",
+      "version": "0.1.9",
       "filename": "providers/megakino.js",
       "supportedTypes": [
         "movie",
@@ -74,7 +74,7 @@
     {
       "id": "streamnest-huhu",
       "name": "Huhu",
-      "version": "0.1.8",
+      "version": "0.1.9",
       "filename": "providers/huhu.js",
       "supportedTypes": [
         "movie",
@@ -88,7 +88,7 @@
     {
       "id": "streamnest-xtream",
       "name": "Xtream VOD",
-      "version": "0.1.8",
+      "version": "0.1.9",
       "filename": "providers/xtream.js",
       "supportedTypes": [
         "movie",

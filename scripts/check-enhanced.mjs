@@ -191,7 +191,8 @@ try {
   const media = [];
   if (mediaCheck === 'mp4') for (const stream of captured) media.push(await verifyMp4Stream(stream));
   const summary = mode === 'settings' ? captured.filter(field => field.type === 'text').map(field => field.key)
-    : captured.map(stream => ({ quality: stream.quality, language: stream.language, subtitleCount: stream.subtitles?.length ?? 0 }));
+    : captured.map(stream => ({ ...(provider === 'huhu' ? { name: stream.name } : {}),
+      quality: stream.quality, language: stream.language, subtitleCount: stream.subtitles?.length ?? 0 }));
   console.log(JSON.stringify({ provider, mode, redirects, transport, clientRef: clientRef ?? 'working-tree', elapsedMs: Date.now() - started,
     count: captured.length, result: summary, ...(mediaCheck === 'mp4' ? { media } : {}), errors, requests }));
   if (!captured.length || errors.length || media.some(result => !result.ok)) process.exitCode = 1;

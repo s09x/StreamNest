@@ -12,7 +12,7 @@ const MAX_PROOF_ATTEMPTS = 1_048_576;
 const MAX_CIPHER_CHARS = 384_000;
 const MAX_SOURCES = 32;
 const MAX_TRACKS = 64;
-const BYSE_HOSTS = new Set(['bysezejataos.com']);
+const BYSE_HOSTS = new Set(['bysezejataos.com', 'filemoon.to', 'filemoon.sx', 'filemoon.in']);
 const multiply32 = Math.imul;
 
 function record(value: unknown): Record<string, unknown> | undefined {
@@ -323,7 +323,7 @@ function subtitleLanguage(value: unknown): string {
   return [aliases[first!] ?? first, ...rest].join('-');
 }
 
-async function mediaStream(http: HttpClient, data: Record<string, unknown>, view: View, title: string): Promise<NativeStream> {
+async function mediaStreams(http: HttpClient, data: Record<string, unknown>, view: View, title: string, all: boolean): Promise<NativeStream[]> {
   if (!Array.isArray(data.sources) || !data.sources.length || data.sources.length > MAX_SOURCES) return invalid();
   const sources = data.sources.map(value => {
     const source = record(value);
@@ -335,7 +335,6 @@ async function mediaStream(http: HttpClient, data: Record<string, unknown>, view
   // highest explicitly supplied height, without guessing from a download label.
   sources.sort((a, b) => Number(b.hls) - Number(a.hls)
     || (typeof b.source.height === 'number' ? b.source.height : 0) - (typeof a.source.height === 'number' ? a.source.height : 0));
-  const chosen = sources[0]!;
   const headers = { 'User-Agent': USER_AGENT, Referer: view.url.href, Origin: view.url.origin };
   const rawTracks = data.tracks ?? [];
   if (!Array.isArray(rawTracks) || rawTracks.length > MAX_TRACKS) return invalid();
@@ -353,23 +352,35 @@ async function mediaStream(http: HttpClient, data: Record<string, unknown>, view
     seen.add(key);
     subtitles.push({ url, language, name: typeof track.title === 'string' ? track.title : undefined, headers });
   }
-  const height = chosen.source.height;
-  const standardHeights = [4320, 2160, 1440, 1080, 720, 576, 480, 360, 240, 144];
-  let quality = typeof height === 'number' && standardHeights.includes(height) ? `${height}p` : undefined;
-  let language: string | undefined;
-  if (chosen.hls) {
-    const metadata = await resolveHlsMetadata(http, chosen.url.href, headers);
-    quality = metadata.quality;
-    language = metadata.language;
-    if (metadata.details.length) title += ' • ' + metadata.details.join(' • ');
+  const results: NativeStream[] = [];
+  const mediaUrls = new Set<string>();
+  let failure: ProviderError | undefined;
+  for (const chosen of all ? sources : sources.slice(0, 1)) {
+    if (mediaUrls.has(chosen.url.href)) continue;
+    try {
+      const height = chosen.source.height;
+      const standardHeights = [4320, 2160, 1440, 1080, 720, 576, 480, 360, 240, 144];
+      let quality = typeof height === 'number' && standardHeights.includes(height) ? `${height}p` : undefined;
+      let language: string | undefined;
+      let streamTitle = title;
+      if (chosen.hls) {
+        const metadata = await resolveHlsMetadata(http, chosen.url.href, headers);
+        quality = metadata.quality;
+        language = metadata.language;
+        if (metadata.details.length) streamTitle += ' • ' + metadata.details.join(' • ');
+      }
+      const size = chosen.source.size_bytes;
+      results.push({ url: chosen.url.href, title: streamTitle, quality, language,
+        size: !chosen.hls && typeof size === 'number' && Number.isSafeInteger(size) && size > 0 ? `${(size / 1024 ** 3).toFixed(2)} GiB` : undefined,
+        headers, subtitles });
+      mediaUrls.add(chosen.url.href);
+    } catch (error) { failure ??= error instanceof ProviderError ? error : new ProviderError('request_failed'); }
   }
-  const size = chosen.source.size_bytes;
-  return { url: chosen.url.href, title, quality, language,
-    size: !chosen.hls && typeof size === 'number' && Number.isSafeInteger(size) && size > 0 ? `${(size / 1024 ** 3).toFixed(2)} GiB` : undefined,
-    headers, subtitles };
+  if (!results.length) throw failure ?? new ProviderError('source_unavailable');
+  return results;
 }
 
-export async function resolveByse(http: HttpClient, embedUrl: string, sourcePage: string, titleHint?: string): Promise<NativeStream> {
+async function resolveByseMedia(http: HttpClient, embedUrl: string, sourcePage: string, titleHint: string | undefined, all: boolean): Promise<NativeStream[]> {
   if (!isByseUrl(embedUrl)) return invalid();
   urlValue(sourcePage);
   const initial = urlValue(embedUrl);
@@ -406,7 +417,15 @@ export async function resolveByse(http: HttpClient, embedUrl: string, sourcePage
       method: 'POST', body: JSON.stringify({ fingerprint }),
       headers: { 'Content-Type': 'application/json', ...(token ? { 'X-Captcha-Token': token } : {}) },
     });
-    return mediaStream(session, decodeBysePlayback(playback.playback), view, title);
+    return mediaStreams(session, decodeBysePlayback(playback.playback), view, title, all);
   }
   return invalid();
+}
+
+export async function resolveByse(http: HttpClient, embedUrl: string, sourcePage: string, titleHint?: string): Promise<NativeStream> {
+  return (await resolveByseMedia(http, embedUrl, sourcePage, titleHint, false))[0]!;
+}
+
+export async function resolveByseVariants(http: HttpClient, embedUrl: string, sourcePage: string, titleHint?: string): Promise<NativeStream[]> {
+  return resolveByseMedia(http, embedUrl, sourcePage, titleHint, true);
 }

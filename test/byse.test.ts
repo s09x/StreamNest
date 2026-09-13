@@ -4,7 +4,7 @@ import { createCipheriv, createPublicKey, verify } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { build } from 'esbuild';
 import { fileURLToPath } from 'node:url';
-import { byseProofHash, decodeBysePlayback, isByseUrl, resolveByse, solveByseProof } from '../src/native/byse.js';
+import { byseProofHash, decodeBysePlayback, isByseUrl, resolveByse, resolveByseVariants, solveByseProof } from '../src/native/byse.js';
 import { ProviderError } from '../src/native/errors.js';
 import { createHttpClient } from '../src/native/http.js';
 import type { HttpClient, RequestOptions, TextResponse } from '../src/native/types.js';
@@ -33,6 +33,7 @@ function envelope(data: unknown, version?: string, keyLength = 32) {
 test('recognizes Byse watch/embed URLs without accepting arbitrary lookalike hosts or credentials', () => {
   assert.equal(isByseUrl('https://bysezejataos.com/d/fmrwk7t9u074'), true);
   assert.equal(isByseUrl('https://bysezejataos.com/e/abcdefghijkl/title'), true);
+  assert.equal(isByseUrl('https://filemoon.to/d/abcdefghijkl'), true);
   for (const url of ['https://evilbyse.com/d/abcdefghijkl', 'https://bysebuho.com.evil.invalid/e/abcdefghijkl',
     'https://byse-unverified.org/d/abcdefghijkl', 'https://user:synthetic-secret@bysezejataos.com/d/abcdefghijkl', 'file:///d/abcdefghijkl',
     'https://bysebuho.com/login', 'https://bysebuho.com/d/short']) assert.equal(isByseUrl(url), false);
@@ -192,6 +193,21 @@ function fixture(options: FixtureOptions = {}) {
   };
   return { http, calls, sessions: () => sessions };
 }
+
+test('Filemoon uses the verified Byse protocol and retains all separately published media variants', async () => {
+  const f = fixture();
+  const streams = await resolveByseVariants(f.http, `https://filemoon.to/d/${code}`, 'https://huhu.to/', 'Verified title');
+  assert.deepEqual(streams.map(stream => stream.url), [media.sources[1]!.url, media.sources[0]!.url]);
+  assert.deepEqual(streams.map(stream => stream.quality), ['1920x800', '1080p']);
+  assert.ok(streams.every(stream => stream.subtitles?.length === 2));
+  assert.equal(f.calls.filter(call => /\/playback$/.test(call.url)).length, 1, 'All variants share the same attestation and playback request');
+});
+
+test('all-variant Byse resolution preserves a file alternative when its HLS source has expired', async () => {
+  const f = fixture({ deadHls: true });
+  const streams = await resolveByseVariants(f.http, watch, sourcePage);
+  assert.deepEqual(streams.map(stream => stream.url), [media.sources[0]!.url]);
+});
 
 test('follows the declared iframe before interpreting watch captcha settings and preserves source sidecars', async () => {
   const f = fixture();
