@@ -2,13 +2,20 @@ import { load } from 'cheerio/slim';
 import { ProviderError } from './errors.js';
 import { jsonResponse, normalizeTitle, objectValue, responseText, yearValue } from './metadata.js';
 import { httpUrl, isVoeUrl, resolveVoe } from './voe.js';
+import { isVidaraUrl, resolveVidara } from './vidara.js';
+import { isVixeoUrl, resolveVixeo } from './vixeo.js';
+import { isPlaymateUrl, resolvePlaymate } from './playmate.js';
+import { isFlyfileUrl, resolveFlyfile } from './flyfile.js';
+import { isFirestreamUrl, resolveFirestream } from './firestream.js';
+import { isByseUrl, resolveByse } from './byse.js';
 import type { ContentRequest, HttpClient, Identity, MetadataProvider, NativeStream, WebProviders } from './types.js';
 
 const MAX_TITLES = 4;
 const MAX_DETAILS = 8;
-const MAX_MIRRORS = 8;
+const MAX_MIRRORS = 32;
 interface PageMatch { url: string; title: string; year: number; release?: string; mirrors: Mirror[] }
-interface Mirror { key: string; url?: string; quality?: string; language?: string }
+interface Mirror { key: string; url?: string; quality?: string; language?: string;
+  provider?: 'voe' | 'vidara' | 'vixeo' | 'playmate' | 'flyfile' | 'firestream' | 'byse' }
 
 function sourceUrl(value: string, origin: string, pathPrefix: string): string {
   const result = new URL(httpUrl(value, origin));
@@ -74,15 +81,19 @@ function parseFilmpalast(html: string, url: string, identity: Identity, request:
   const release = main.find('#release_text').first().text().trim().slice(0, 1000) || undefined;
   const mirrors: Mirror[] = [];
   const seen = new Set<string>();
-  main.find('a.iconPlay[href]').each((_, element) => {
-    const raw = $(element).attr('href');
+  main.find('a.iconPlay[href],a.iconPlay[data-player-url]').each((_, element) => {
+    const raw = $(element).attr('data-player-url') ?? $(element).attr('href');
     if (!raw) return;
-    const target = httpUrl(raw, canonicalUrl);
-    if (!isVoeUrl(target)) return;
-    const key = new URL(target).pathname.replace(/^\/e\//, '/').toLowerCase();
+    let target: string;
+    try { target = httpUrl(raw, canonicalUrl); } catch { return; }
+    const provider = isVoeUrl(target) ? 'voe' : isVidaraUrl(target) ? 'vidara' : isVixeoUrl(target) ? 'vixeo'
+      : isPlaymateUrl(target) ? 'playmate' : isFlyfileUrl(target) ? 'flyfile' : isFirestreamUrl(target) ? 'firestream' : null;
+    if (!provider) return;
+    const address = new URL(target);
+    const key = `${provider}:${address.origin}${provider === 'voe' ? address.pathname.replace(/^\/e\//, '/') : address.pathname}`;
     if (seen.has(key)) return;
     seen.add(key);
-    mirrors.push({ key, url: target, quality: quality(release ?? ''), language: sourceLanguage(release ?? '') });
+    mirrors.push({ key, url: target, provider, quality: quality(release ?? ''), language: sourceLanguage(release ?? '') });
   });
   if (mirrors.length > MAX_MIRRORS) throw new ProviderError('response_incomplete');
   return { url: canonicalUrl, title, year, release, mirrors };
@@ -94,16 +105,17 @@ function filmoMirrors(html: string): Array<Mirror & { payload: string }> {
   const seen = new Set<string>();
   $('[data-provider-chip][data-movie-link-id]').each((_, element) => {
     const chip = $(element);
-    const provider = chip.find('.provider-chip__name').first().text().trim() || chip.attr('aria-label')?.trim();
-    if (provider?.toUpperCase() !== 'VOE') return;
+    const providerName = (chip.find('.provider-chip__name').first().text().trim() || chip.attr('aria-label')?.trim())?.toUpperCase();
+    const provider = providerName === 'VOE' ? 'voe' : providerName === 'BYSE' ? 'byse' : undefined;
+    if (!provider) return;
     const id = chip.attr('data-movie-link-id');
     const payload = chip.attr('data-p');
     if (!id || !/^[\w-]{1,120}$/.test(id) || !payload || payload.length > 16_000) throw new ProviderError('invalid_response');
     const language = sourceLanguage(chip.closest('.provider-row').text());
-    const key = `${id}:${language ?? ''}`;
+    const key = `${provider}:${id}:${language ?? ''}`;
     if (seen.has(key)) return;
     seen.add(key);
-    mirrors.push({ key, payload, language, quality: quality(chip.find('.provider-chip__metadata').text()) });
+    mirrors.push({ key, payload, provider, language, quality: quality(chip.find('.provider-chip__metadata').text()) });
   });
   if (mirrors.length > MAX_MIRRORS) throw new ProviderError('response_incomplete');
   return mirrors;
@@ -126,14 +138,28 @@ async function resolveMirrors(page: PageMatch, resolver: (mirror: Mirror) => Pro
   const streams: NativeStream[] = [];
   let failure: ProviderError | undefined;
   const seen = new Set<string>();
-  for (const mirror of page.mirrors) {
+  const resolved: Array<NativeStream | ProviderError> = new Array(page.mirrors.length);
+  let next = 0;
+  async function worker(): Promise<void> {
+    while (next < page.mirrors.length) {
+      const index = next++;
+      try { resolved[index] = await resolver(page.mirrors[index]!); }
+      catch (error) { resolved[index] = error instanceof ProviderError ? error : new ProviderError('request_failed'); }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(3, page.mirrors.length) }, () => worker()));
+  for (let index = 0; index < page.mirrors.length; index++) {
+    const mirror = page.mirrors[index]!;
     try {
-      const stream = await resolver(mirror);
+      const stream = resolved[index]!;
+      if (stream instanceof ProviderError) throw stream;
       if (seen.has(stream.url)) continue;
       seen.add(stream.url);
       const label = stream.title && stream.title !== 'VOE' ? stream.title : page.release ?? page.title;
-      streams.push({ ...stream, title: `${label} • VOE`, quality: stream.quality ?? mirror.quality,
-        language: stream.language ?? mirror.language });
+      const hoster = ({ voe: 'VOE', vidara: 'Vidara', vixeo: 'Vixeo', playmate: 'Playmate', flyfile: 'FlyFile', firestream: 'FireStream', byse: 'Byse' })[mirror.provider ?? 'voe'];
+      const pageFallback = !mirror.provider || mirror.provider === 'voe';
+      streams.push({ ...stream, title: `${label} • ${hoster}`, quality: stream.quality ?? (pageFallback ? mirror.quality : undefined),
+        language: stream.language ?? (pageFallback ? mirror.language : undefined) });
     } catch (error) {
       failure ??= error instanceof ProviderError ? error : new ProviderError('request_failed');
     }
@@ -174,17 +200,28 @@ export function createWebProviders(http: HttpClient, metadata: MetadataProvider)
       if (matches.size > 1) throw new ProviderError('ambiguous_match');
       const page = matches.values().next().value;
       if (!page) return [];
-      return resolveMirrors(page, mirror => resolveVoe(http, mirror.url!, page.url));
+      return resolveMirrors(page, mirror => {
+        switch (mirror.provider) {
+          case 'vidara': return resolveVidara(http, mirror.url!, page.url, page.title);
+          case 'vixeo': return resolveVixeo(http, mirror.url!, page.url, page.title);
+          case 'playmate': return resolvePlaymate(http, mirror.url!, page.url, page.title);
+          case 'flyfile': return resolveFlyfile(http, mirror.url!, page.url, page.title);
+          case 'firestream': return resolveFirestream(http, mirror.url!, page.url, page.title);
+          default: return resolveVoe(http, mirror.url!, page.url);
+        }
+      });
     },
     async filmo(request) {
       if (request.type !== 'movie') return [];
-      // The token jump requires its Filmo session. A host that automatically
-      // follows redirects can forward those Cookie headers before JS can strip
-      // them, so establish observable manual redirects without cookies first.
+      // VOE's token jump requires manual redirects to strip the Filmo cookie.
+      // Byse instead uses a same-origin HTML handoff and can run on other hosts.
       const probeUrl = 'http://filmo.to/';
-      const probe = await http.request(probeUrl, { redirect: 'manual' });
-      if (![301, 302, 307, 308].includes(probe.status) || probe.url !== probeUrl
-        || probe.header('location') !== 'https://filmo.to/') throw new ProviderError('unsupported_runtime');
+      let manualRedirects = false;
+      try {
+        const probe = await http.request(probeUrl, { redirect: 'manual' });
+        manualRedirects = [301, 302, 307, 308].includes(probe.status) && probe.url === probeUrl
+          && probe.header('location') === 'https://filmo.to/';
+      } catch { /* An unavailable HTTP capability probe must not exclude the HTTPS Byse path. */ }
       const identity = await metadata.resolve(request);
       if (!identity) return [];
       expectedIdentity(identity, request);
@@ -213,7 +250,10 @@ export function createWebProviders(http: HttpClient, metadata: MetadataProvider)
       if (matches.size > 1) throw new ProviderError('ambiguous_match');
       const page = matches.values().next().value;
       if (!page) return [];
-      return resolveMirrors(page, async mirror => {
+      const eligible = page.mirrors.filter(mirror => mirror.provider === 'byse' || manualRedirects);
+      if (page.mirrors.length && !eligible.length) throw new ProviderError('unsupported_runtime');
+      const byseFlights = new Map<string, Promise<NativeStream>>();
+      return resolveMirrors({ ...page, mirrors: eligible }, async mirror => {
         const session = http.session();
         const response = await session.request(page.url);
         const html = responseText(response);
@@ -233,10 +273,31 @@ export function createWebProviders(http: HttpClient, metadata: MetadataProvider)
           method: 'POST', headers, body: JSON.stringify({ p: current.payload }),
         })));
         if (typeof minted?.x !== 'string' || !minted.x || minted.x.length > 8000) throw new ProviderError('invalid_response');
-        const opened = await session.request(`https://filmo.to/n/${encodeURIComponent(minted.x)}`, {
+        const handoffUrl = `https://filmo.to/n/${encodeURIComponent(minted.x)}`;
+        const opened = await session.request(handoffUrl, {
           headers: { Referer: page.url },
         });
-        responseText(opened);
+        const handoff = responseText(opened);
+        if (mirror.provider === 'byse') {
+          if (opened.status !== 200 || opened.url !== handoffUrl) throw new ProviderError('invalid_response');
+          const $ = load(handoff);
+          const destinations = new Set<string>();
+          $('a.open[href]').each((_, element) => {
+            const address = httpUrl($(element).attr('href')!, handoffUrl);
+            if (!isByseUrl(address)) throw new ProviderError('invalid_response');
+            destinations.add(address);
+          });
+          if (destinations.size !== 1) throw new ProviderError('invalid_response');
+          // The published link is noreferrer. Start a clean hoster client and
+          // never forward Filmo cookies, its mint token, or CSRF headers.
+          const destination = destinations.values().next().value!;
+          let flight = byseFlights.get(destination);
+          if (!flight) {
+            flight = resolveByse(http, destination, page.url, page.title);
+            byseFlights.set(destination, flight);
+          }
+          return flight;
+        }
         return resolveVoe(session, opened.url, page.url, opened);
       });
     },

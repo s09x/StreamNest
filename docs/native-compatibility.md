@@ -7,6 +7,19 @@ the JavaScript providers. GitHub supplies the manifest and provider bundles.
 
 ## Build and platform prerequisites
 
+Nuvio has more than one client generation. The user-supplied
+[native provider guide](https://github.com/yoruix/nuvio-providers/blob/main/DOCUMENTATION.md)
+describes React Native/Hermes clients. Its build requires ES2016-compatible dynamic
+code. StreamNest 0.1.0 used an ES2020 target and was not compatible with that
+contract: the tested Hermes compiler rejected async-arrow functions and classes.
+The build now lowers both, preserves host-global isolation, and exports the
+Xtream settings array synchronously. QuickJS execution remains part of CI.
+
+The version-specific source audit below concerns the separately inspected
+Compose/QuickJS and TV clients; it does not identify an unknown installed iOS build
+merely from the words "latest version". Actual settings, network and player
+capabilities still depend on the installed client.
+
 The installed Nuvio build must actually include its native JavaScript plugin
 runtime. The inspected store variants and older TV runtimes are not equivalent
 to the Full builds:
@@ -132,12 +145,25 @@ supports validation after a response; it does not turn automatic following into
 controlled redirect handling. Smart explicitly removes only `Authorization` on a
 cross-origin redirect and preserves the original method/body for 307/308.
 
-The observed Filmo flow needs session cookies on `/n/<token>`: a fresh request
-without them returned 404. Its credentialed redirect therefore requires verified
-manual-redirect support before any session cookies are acquired. Android Mobile
-and Desktop provide that capability in the inspected releases. Unsupported
-hosts must fail the anonymous capability check before the session flow starts;
-checking the final origin after sending cookies would be too late.
+The observed Filmo VOE flow needs session cookies on `/n/<token>`: a fresh request
+without them returned 404. That mirror requires verified manual-redirect support
+before its session starts. Android Mobile and Desktop provide that capability in
+the inspected releases. Unsupported hosts omit the VOE session before cookies are
+acquired; checking the final origin after sending cookies would be too late.
+
+Filmo's Byse link instead returns a same-origin HTTP 200 HTML page with an explicit
+`a.open` destination. StreamNest reads that anchor and starts a clean Byse client,
+without forwarding Filmo's cookies, CSRF values or mint token. Failure of the
+anonymous HTTP redirect probe does not exclude this HTTPS-only handoff.
+
+Byse's attestation also requires secure randomness. The inspected Mobile bridge
+provides `crypto.getRandomValues` backed by Android `SecureRandom` or iOS
+`SecRandomCopyBytes`. Its native `subtle.generateKey` supports AES/HMAC, so the
+provider includes a portable P-256 implementation rather than assuming native
+ECDSA support. The inspected Android TV runtime does not expose an equivalent
+secure-random bridge; Byse returns `unsupported_runtime` there unless the client
+supplies a genuine CSPRNG. Its automatic proof also has a bounded CPU budget.
+These are Byse requirements, not a reason to suppress other working hosters.
 
 - [Mobile JS flag forwarding: JsBindings.kt:85](https://github.com/NuvioMedia/NuvioMobile/blob/13cd02040a6e9b8bc3b5a51c4925fb0603597955/composeApp/src/fullCommonMain/kotlin/com/nuvio/app/features/plugins/runtime/js/JsBindings.kt#L85)
 - [Android manual redirects and final URL: AddonPlatform.android.kt:291](https://github.com/NuvioMedia/NuvioMobile/blob/13cd02040a6e9b8bc3b5a51c4925fb0603597955/composeApp/src/androidMain/kotlin/com/nuvio/app/features/addons/AddonPlatform.android.kt#L291)

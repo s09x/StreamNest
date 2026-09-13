@@ -9,7 +9,7 @@ export interface FixtureRoute {
   body: string;
   finalUrl?: string;
 }
-export interface FixtureOptions { settings?: unknown; routes?: FixtureRoute[]; provideAtob?: boolean }
+export interface FixtureOptions { settings?: unknown; routes?: FixtureRoute[]; provideAtob?: boolean; provideCryptoRandom?: boolean }
 export type GuestResult = { ok: true; value: unknown } | { ok: false; error: { name: string; message: string; code?: string } };
 
 /** Standard URL APIs are host-backed; fetch and all source responses remain inside the guest. */
@@ -79,6 +79,17 @@ export async function createNativeRuntime(bundle: string, options: FixtureOption
         return result;
       };
       globalThis.__originalAtob = globalThis.atob;
+      // Deterministic test fixture for Nuvio's secure-random host interface.
+      // Production providers never use this generator or Math.random for keys.
+      if (${options.provideCryptoRandom === true}) {
+        let fixtureRandomCall = 0;
+        globalThis.crypto = { getRandomValues(values) {
+          if (!(values instanceof Uint8Array)) throw new TypeError('Expected fixture byte array');
+          const seed = ++fixtureRandomCall;
+          for (let index = 0; index < values.length; index++) values[index] = (seed + index * 7) & 255;
+          return values;
+        }};
+      }
       function urlOperation(request) {
         const result = JSON.parse(__urlOperation(JSON.stringify(request)));
         if (result.error) throw new TypeError(result.error);

@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { parse } from 'acorn';
+import { createCipheriv, createPublicKey, verify } from 'node:crypto';
 import { createNativeRuntime, type FixtureRoute, type GuestResult } from './helpers/native-runtime.js';
 
 interface ManifestEntry { id: string; filename: string; supportedTypes: string[]; hasSettings: boolean; version: string }
@@ -58,6 +60,24 @@ function voeRoutes(mediaName: string): FixtureRoute[] {
   ];
 }
 
+test('generated providers parse as ES2016 for Nuvio Hermes dynamic loading', async () => {
+  for (const entry of manifest.scrapers) {
+    const code = await readFile(new URL(entry.filename, root), 'utf8');
+    let program: unknown;
+    assert.doesNotThrow(() => { program = parse(code, { ecmaVersion: 2016, sourceType: 'script' }); },
+      `${entry.filename} must not require native async functions or newer dynamic syntax`);
+    function checkSyntax(node: unknown): void {
+      if (!node || typeof node !== 'object') return;
+      if (Array.isArray(node)) { node.forEach(checkSyntax); return; }
+      const value = node as Record<string, unknown>;
+      assert.notEqual(value.type, 'ClassDeclaration', 'Hermes requires lowered class declarations');
+      assert.notEqual(value.type, 'ClassExpression', 'Hermes requires lowered class expressions');
+      Object.values(value).forEach(checkSyntax);
+    }
+    checkSyntax(program);
+  }
+});
+
 test('manifest bundles execute as native CJS exports without Node globals or external require', async () => {
   assert.equal(manifest.scrapers.length, 3);
   const ids = new Set(manifest.scrapers.map(item => item.id));
@@ -92,6 +112,8 @@ test('Xtream native settings export declares host and sensitive account fields w
     settings: { host: 'https://iptv.example.invalid:8080', username: 'synthetic-account', password: 'synthetic-password' },
   });
   try {
+    assert.equal(runtime.value('Array.isArray(module.exports.onSettings())'), true,
+      'the settings blueprint is available synchronously without starting stream work');
     const fields = fulfilled<Array<Record<string, unknown>>>(await runtime.run('module.exports.onSettings()'));
     assert.equal(fields.find(field => field.key === 'host')?.type, 'text');
     assert.equal(fields.find(field => field.key === 'username')?.isPassword, true);
@@ -183,16 +205,85 @@ test('actual Filmo bundle carries guest cookie and CSRF context through the norm
   } finally { runtime.dispose(); }
 });
 
-test('actual Filmo bundle stops before session cookies when the host auto-follows the capability probe', async () => {
+test('actual Filmo bundle excludes a VOE-only session when the host auto-follows redirects', async () => {
+  const chip = '<div data-provider-chip data-movie-link-id="12" data-p="unused-payload"><span class="provider-chip__name">VOE</span></div>';
   const runtime = await createNativeRuntime(await bundle('filmo'), { routes: [
     route('http://filmo.to/', html('Filmo', 'Public home'), { finalUrl: 'https://filmo.to/' }),
+    ...movieMetadata(),
+    route('https://filmo.to/search/suggest?q=Inception', { movies: [{ title: 'Inception', url: 'https://filmo.to/movies/inception' }] }),
+    route('https://filmo.to/movies/inception', html('Filmo Inception', `<main><h1>Inception</h1><p>Erscheinungsdatum: 2010</p>${chip}</main>`)),
   ] });
   try {
     const result = await runtime.run(`module.exports.getStreams('tt1375666','movie')`);
     assert.equal(result.ok, false);
     if (!result.ok) assert.equal(result.error.code, 'unsupported_runtime');
-    assert.equal(runtime.value('__requests.length'), 1);
+    assert.equal(runtime.value('__requests.length'), 5);
     assert.equal(runtime.value(`__requests.some(request => Object.keys(request.headers).some(key => /cookie|csrf/i.test(key)))`), false);
+    assert.equal(runtime.value(`__requests.some(request => request.url.startsWith('https://filmo.to/n'))`), false);
+  } finally { runtime.dispose(); }
+});
+
+test('actual Filmo bundle completes Byse attestation, proof and authenticated playback without manual redirects or native ECDSA', async () => {
+  const code = 'abcdefghijkl';
+  const watch = `https://bysezejataos.com/d/${code}`;
+  const frame = `https://frame.example.invalid/n3i/${code}`;
+  const frameApi = `https://frame.example.invalid/api/videos/${code}/embed`;
+  const nonce = 'synthetic nonce: Grüße';
+  const fingerprint = { token: 'synthetic-fingerprint', viewer_id: 'synthetic-viewer', device_id: 'synthetic-device', confidence: 0.35 };
+  const mediaUrl = 'https://cdn.example.invalid/byse/master.m3u8';
+  const key = Buffer.alloc(32, 7); const iv = Buffer.alloc(12, 3);
+  const cipher = createCipheriv('aes-256-gcm', key, iv);
+  const payload = Buffer.concat([cipher.update(JSON.stringify({
+    sources: [{ url: mediaUrl, mime_type: 'application/vnd.apple.mpegurl', height: 1080 }],
+    tracks: [{ url: 'https://cdn.example.invalid/de.vtt', language: 'ger', title: 'Deutsch', kind: 'captions' }],
+  })), cipher.final(), cipher.getAuthTag()]);
+  const encrypted = { version: '0', key_parts: [key.subarray(0, 16).toString('base64url'), key.subarray(16).toString('base64url')],
+    iv: iv.toString('base64url'), payload: payload.toString('base64url') };
+  const chip = (name: string, id: string) => `<div data-provider-chip data-movie-link-id="${id}" data-p="synthetic-${name}"><span class="provider-chip__name">${name}</span></div>`;
+  const runtime = await createNativeRuntime(await bundle('filmo'), { provideCryptoRandom: true, routes: [
+    route('http://filmo.to/', html('Filmo', 'Public home'), { finalUrl: 'https://filmo.to/' }),
+    ...movieMetadata(),
+    route('https://filmo.to/search/suggest?q=Inception', { movies: [{ title: 'Inception', url: 'https://filmo.to/movies/inception' }] }),
+    route('https://filmo.to/movies/inception', html('Filmo Inception', `<main><h1>Inception</h1><p>Erscheinungsdatum: 2010</p>${chip('VOE', '1')}${chip('Byse', '2')}</main>`,
+      '<meta name="csrf-token" content="synthetic-csrf">'), { headers: { 'set-cookie': 'filmo-session=synthetic-session; Path=/; Secure' } }),
+    route('https://filmo.to/n', { x: 'synthetic-jump' }, { method: 'POST' }),
+    route('https://filmo.to/n/synthetic-jump', html('Video öffnen', `<a class="open" rel="noopener noreferrer" href="${watch}">Open</a>`)),
+    route(`https://bysezejataos.com/api/videos/${code}/details`, { code, title: 'Upload 1080p', embed_frame_url: frame }),
+    route(`https://bysezejataos.com/api/videos/${code}/settings`, { code, captcha_required: true }),
+    route(`${frameApi}/details`, { code, title: 'Upload 1080p', embed_frame_url: `https://frame.example.invalid/next/${code}` }),
+    route(`${frameApi}/settings`, { code, captcha_required: true }),
+    route('https://frame.example.invalid/api/videos/access/challenge', { challenge_id: 'synthetic-access', nonce }, { method: 'POST' }),
+    route('https://frame.example.invalid/api/videos/access/attest', fingerprint, { method: 'POST' }),
+    route(`${frameApi}/captcha`, { pow_nonce: 'synthetic-nonce', pow_difficulty: 8, pow_token: 'synthetic-proof', expires_in: 1800 }, { method: 'POST' }),
+    route(`${frameApi}/captcha/verify`, { status: 'ok', token: 'synthetic-captcha' }, { method: 'POST' }),
+    route(`${frameApi}/playback`, { playback: encrypted }, { method: 'POST' }),
+    route(mediaUrl, '#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="a",LANGUAGE="en",URI="en.m3u8"\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="a",LANGUAGE="de",URI="de.m3u8"\n#EXT-X-STREAM-INF:RESOLUTION=1716x720,CODECS="avc1.64001f,mp4a.40.2",AUDIO="a"\nvideo.m3u8\n'),
+  ] });
+  try {
+    const streams = fulfilled<Array<Record<string, unknown>>>(await runtime.run(`module.exports.getStreams('tt1375666','movie')`));
+    assert.equal(streams.length, 1);
+    assert.equal(streams[0]?.url, mediaUrl);
+    assert.equal(streams[0]?.quality, '720p');
+    assert.equal(streams[0]?.language, 'en / de');
+    assert.doesNotMatch(String(streams[0]?.title), /1080p/);
+    const nativeLabel = String(streams[0]?.name ?? streams[0]?.title);
+    assert.match(nativeLabel, /1716x720/);
+    assert.match(nativeLabel, /Byse/);
+    const requests = runtime.value('__requests') as Array<{ url: string; headers: Record<string, string>; body?: string }>;
+    const attest = requests.find(request => request.url.endsWith('/access/attest'))!;
+    const body = JSON.parse(attest.body!);
+    assert.equal(verify('sha256', Buffer.from(nonce), {
+      key: createPublicKey({ key: body.public_key, format: 'jwk' }), dsaEncoding: 'ieee-p1363',
+    }, Buffer.from(body.signature, 'base64url')), true);
+    assert.equal(body.public_key.d, undefined);
+    for (const request of requests.filter(request => request.url.startsWith(frameApi) && request.body)) {
+      assert.deepEqual(JSON.parse(request.body!).fingerprint, fingerprint);
+      assert.equal(request.headers.Cookie, undefined);
+    }
+    assert.equal(requests.some(request => request.url.includes('/next/')), false);
+    assert.equal(requests.some(request => request.url.includes('voe.sx')), false);
+    assert.equal(runtime.value('typeof Buffer'), 'undefined');
+    assert.equal(runtime.value('typeof crypto.subtle'), 'undefined');
   } finally { runtime.dispose(); }
 });
 

@@ -26,19 +26,32 @@ development tools are not needed to use the providers in Nuvio.
 | Provider | Content | Configuration |
 | --- | --- | --- |
 | StreamNest \| Filmpalast | Movies and series episodes | None |
-| StreamNest \| Filmo | Movies on runtimes with manual redirect support | None |
+| StreamNest \| Filmo | Movies through VOE and Byse | None |
 | StreamNest \| Xtream VOD | Movies and series from your account | Host, username, password in native provider settings |
 
-Filmpalast and Filmo currently resolve their supported VOE mirrors. An unsupported
-or blocked mirror is not presented as a playable stream. Other working mirrors
-remain usable when one mirror fails. Live TV and MediathekViewWeb are outside the
-scope of this repository.
+Filmpalast supports the six hoster families observed in the inspected movie and
+episode pages: **VOE, VIDARA, Vixeo, FireStream, FlyFile and Playmate**. Mirrors are
+resolved with at most three concurrent workers. A failing mirror does not suppress
+working alternatives, and their display order remains stable.
 
-Filmo requires a fetch bridge that honors manual redirects, verified in the
-inspected Android Mobile and Desktop clients. It checks that capability before
-creating a source session. The inspected iOS, Android TV and Smart TV bridges do
-not support that controlled redirect path. Those clients receive an explicit
-unsupported-runtime error for Filmo. Filmpalast does not require this Filmo flow.
+Filmo recognizes **VOE and Byse**, including separate language and quality rows.
+Its VOE handoff requires a fetch bridge that honors manual redirects so Filmo's
+session cookie can be removed before crossing origins. Byse uses a same-origin
+HTML handoff; it can be used independently of that VOE requirement. Duplicate
+Byse destinations within one lookup share the same resolution work.
+
+Byse performs its published server attestation and automatic proof-of-work and
+authenticates the returned playback data before using it. This requires a secure
+randomness API in the native client. Proof computation is bounded; an actual
+interactive challenge or an exhausted computation budget remains an explicit
+failure. See [native compatibility](docs/native-compatibility.md) for client
+capabilities and [hoster verification](docs/hosters.md) for observed results.
+
+Some upstream files can still be deleted or blocked. For example, the inspected
+Doctor Strange 2 VOE file was missing while VIDARA and FlyFile worked; the sampled
+Playmate CDN returned a service-level restriction. Such failures do not produce
+invented playable URLs. Live TV and MediathekViewWeb are outside this repository's
+movie/series scope.
 
 The [source comparison](docs/source-selection.md) records the findings for all
 requested sources, including PrimeWire, Moflix, KinoGer, Movie2k, SerienStream and
@@ -50,6 +63,11 @@ Open the settings for **StreamNest | Xtream VOD** in a Nuvio client that exposes
 native provider settings. Enter your full server URL (including the port when
 needed), username, and password. These values are read from Nuvio's
 `SCRAPER_SETTINGS`; they are never added to the public JavaScript files.
+
+The settings export returns the three input fields synchronously. Provider bundles
+are compiled to ES2016 and have classes lowered for Hermes dynamic loading, while
+remaining executable in the tested QuickJS runtime. When updating from 0.1.0,
+refresh the repository in Nuvio so it downloads the corrected JavaScript files.
 
 Nuvio controls the settings UI, local storage, and any device synchronization.
 The currently inspected Android TV/Smart TV versions do **not** provide a verified
@@ -89,7 +107,9 @@ npm run check
 The check runs TypeScript validation, rebuilds `manifest.json` and `providers/`,
 and executes unit and QuickJS integration tests. Build output isolates dependency
 variables from Nuvio's globals and exposes `module.exports.getStreams` plus the
-Xtream `onSettings` export.
+Xtream `onSettings` export. Syntax checks reject native async syntax and unlowered
+classes in generated artifacts; an actual Hermes compiler was also used during
+the compatibility investigation.
 
 Commit the manifest, generated providers, and `THIRD_PARTY_NOTICES.md` together
 with source changes. Increment the package version for provider updates so Nuvio

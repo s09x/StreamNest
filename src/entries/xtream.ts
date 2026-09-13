@@ -9,4 +9,4 @@ export async function getStreams(id: string | number, type: string, season?: num
   return createXtreamProvider(http, createMetadataProvider(http), settings).getStreams(parseRequest(id, type, season, episode));
 }
 
-export async function onSettings() { return xtreamSettings(); }
+export function onSettings() { return xtreamSettings(); }

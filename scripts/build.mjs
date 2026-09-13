@@ -1,4 +1,6 @@
-import { build } from 'esbuild';
+import { build, transform } from 'esbuild';
+import { transformAsync } from '@babel/core';
+import transformClasses from '@babel/plugin-transform-classes';
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
@@ -18,15 +20,29 @@ await mkdir(resolve(root, 'providers'), { recursive: true });
 for (const provider of definitions) {
   const result = await build({
     entryPoints: [resolve(root, `src/entries/${provider.entry}.ts`)], bundle: true,
-    platform: 'browser', format: 'iife', globalName: 'StreamNestProvider', target: 'es2020', minify: true,
+    // Nuvio's Hermes clients dynamically load ES2016-compatible provider code.
+    platform: 'browser', format: 'iife', globalName: 'StreamNestProvider', target: 'es2016', minify: true,
     legalComments: 'eof', define: { 'process.env.NODE_ENV': '"production"' }, write: false, metafile: true,
     banner: { js: prelude },
     footer: { js: 'module.exports = StreamNestProvider;' },
   });
-  const output = result.outputFiles[0];
-  if (!output || output.contents.byteLength > 1024 * 1024) throw new Error('Native provider bundle exceeds the packaging budget.');
-  if (/\brequire\(["'](?:node:|fs["']|http["']|https["'])/.test(output.text)) throw new Error('A Node dependency entered a native provider.');
-  artifacts.push([resolve(root, `providers/${provider.entry}.js`), output.contents]);
+  const bundled = result.outputFiles[0];
+  if (!bundled) throw new Error('Native provider build produced no JavaScript.');
+  // Hermes also requires classes to be lowered. Keep Babel's inserted helpers
+  // inside a closure so they cannot replace functions in Nuvio's host scope.
+  const lowered = await transformAsync(bundled.text, {
+    babelrc: false, configFile: false, sourceType: 'script', comments: true,
+    plugins: [[transformClasses.default ?? transformClasses, { loose: false }]],
+  });
+  if (!lowered?.code) throw new Error('Native provider class transform produced no JavaScript.');
+  const output = await transform(`(function () {\n${lowered.code}\n})();`, {
+    target: 'es2016', minify: true, legalComments: 'eof',
+  });
+  const contents = new TextEncoder().encode(output.code);
+  if (contents.byteLength > 1024 * 1024) throw new Error('Native provider bundle exceeds the packaging budget.');
+  if (/\brequire\(["'](?:node:|fs["']|http["']|https["'])/.test(output.code)) throw new Error('A Node dependency entered a native provider.');
+  artifacts.push([resolve(root, `providers/${provider.entry}.js`), contents]);
+  bundledPackages.add('@babel/helpers');
   const includedInputs = new Set(Object.values(result.metafile.outputs).flatMap(file =>
     Object.entries(file.inputs).filter(([, contribution]) => contribution.bytesInOutput > 0).map(([input]) => input)));
   for (const input of includedInputs) {
@@ -43,12 +59,26 @@ const notices = ['# Third-party runtime notices', '', 'These packages are bundle
 for (const name of [...bundledPackages].sort()) {
   const directory = resolve(root, 'node_modules', name);
   const metadata = JSON.parse(await readFile(resolve(directory, 'package.json'), 'utf8'));
-  const licenseFile = (await readdir(directory)).find(file => /^(?:license|licence|copying)(?:[._-][\w-]+)?$/i.test(file));
+  const packageFiles = await readdir(directory);
+  const licenseFile = packageFiles.find(file => /^(?:license|licence|copying)(?:[._-][\w-]+)?$/i.test(file));
   const licensePath = licenseFile ? resolve(directory, licenseFile)
     : resolve(root, 'scripts/licenses', `${name.replaceAll('/', '_')}-${metadata.version}.txt`);
   let license;
-  try { license = await readFile(licensePath, 'utf8'); }
-  catch { throw new Error(`Missing runtime dependency license: ${name}`); }
+  if (!licenseFile && metadata.license === 'MIT') {
+    const readmeFile = packageFiles.find(file => /^readme(?:\.md)?$/i.test(file));
+    if (readmeFile) {
+      const readme = await readFile(resolve(directory, readmeFile), 'utf8');
+      const section = /(?:^|\n)#{1,6}\s+LICENSE[^\n]*\n([\s\S]*?)(?=\n#{1,6}\s|\n\[[^\]]+\]:|$)/.exec(readme)?.[1];
+      // Several installed crypto packages publish their complete MIT notice
+      // in README.md instead of a separate LICENSE file.
+      if (section && /Copyright/.test(section) && /Permission is hereby granted/.test(section)
+        && /USE OR OTHER DEALINGS IN THE SOFTWARE\./.test(section)) license = section;
+    }
+  }
+  if (!license) {
+    try { license = await readFile(licensePath, 'utf8'); }
+    catch { throw new Error(`Missing runtime dependency license: ${name}`); }
+  }
   const noticeText = license.replace(/\r\n/g, '\n').replace(/[\t ]+$/gm, '').trim();
   notices.push(`## ${name} ${metadata.version}`, '', `License: ${metadata.license ?? 'See the notice below.'}`, '', '```text', noticeText, '```', '');
 }

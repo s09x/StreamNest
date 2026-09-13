@@ -11,8 +11,10 @@ const values = Object.fromEntries(process.argv.slice(2).reduce((pairs, value, in
 }, []));
 const provider = values.provider;
 if (!['filmpalast', 'filmo', 'xtream'].includes(provider) || !values.id || !values.type) {
-  throw new Error('Use --provider, --id and --type; optional --season, --episode and --limit.');
+  throw new Error('Use --provider, --id and --type; optional --season, --episode, --limit and --redirects.');
 }
+const redirects = values.redirects ?? 'manual';
+if (!['manual', 'follow'].includes(redirects)) throw new Error('Invalid native redirect mode.');
 let settings;
 if (provider === 'xtream') {
   let input = '';
@@ -28,12 +30,16 @@ const stats = { requests: 0, truncated: 0, legacyRequests: 0, maximumBytes: 0 };
 const operations = [];
 const context = createContext({
   module: { exports: {} }, URL, URLSearchParams, SCRAPER_SETTINGS: settings,
+  // Nuvio Mobile exposes secure randomness but not native P-256 key generation.
+  // Keep the normal portable signing implementation inside the tested bundle.
+  crypto: { getRandomValues: bytes => globalThis.crypto.getRandomValues(bytes) },
   fetch: async (url, options) => {
     stats.requests++;
     const fields = new URLSearchParams(options?.method === 'GET' ? new URL(url).search : options?.body ?? '');
     const operation = { action: fields.get('action') ?? fields.get('type') ?? (url.includes('/player_api.php') ? 'authenticate' : 'metadata'), category: fields.get('category_id') ?? fields.get('cat_id') };
     if (url.includes('/enigma2.php')) stats.legacyRequests++;
-    const response = await fetch(url, { ...options, headers: { ...options?.headers, Connection: 'close' }, signal: AbortSignal.timeout(20_000) });
+    const response = await fetch(url, { ...options, redirect: redirects === 'follow' ? 'follow' : options?.redirect,
+      headers: { ...options?.headers, Connection: 'close' }, signal: AbortSignal.timeout(20_000) });
     const original = Buffer.from(await response.text());
     stats.maximumBytes = Math.max(stats.maximumBytes, original.length);
     if (original.length > limit) stats.truncated++;
@@ -48,7 +54,7 @@ const start = Date.now();
 try {
   const streams = await context.module.exports.getStreams(values.id, values.type,
     values.season === undefined ? undefined : Number(values.season), values.episode === undefined ? undefined : Number(values.episode));
-  console.log(JSON.stringify({ ok: true, provider, elapsedMs: Date.now() - start, stats,
+  console.log(JSON.stringify({ ok: true, provider, redirects, elapsedMs: Date.now() - start, stats,
     streams: streams.map(stream => ({ name: stream.name, quality: stream.quality, language: stream.language, subtitleCount: stream.subtitles?.length ?? 0 })) }));
 } catch (error) {
   console.log(JSON.stringify({ ok: false, provider, error: typeof error.code === 'string' ? error.code : 'request_failed',

@@ -1,0 +1,74 @@
+# Hoster coverage and verification
+
+StreamNest recognizes every hoster family found in the inspected Filmpalast movie
+and episode pages, and both hosters found in the inspected Filmo pages. This is a
+dated source census, not a claim that upstream sites can never add another hoster.
+
+| Source / hoster | Native path | Observed result on 2026-09-13 |
+| --- | --- | --- |
+| Filmpalast / VOE | Published player data and its normal redirects | Some sampled files resolve; the Doctor Strange 2 file returns 404 in both regular and embed forms. |
+| Filmpalast / VIDARA | `odysseusa.cc` and `vidaraa.cc`: `POST /api/stream`, echoed file code, published HLS URL and sidecars | Doctor Strange 2, Inception, GoT and Fallout produced valid HLS responses. Doctor Strange 2 includes German and English sidecars. |
+| Filmpalast / Vixeo | Both `vidsonic.net` and `vixeo.io` layouts; identity-bound Base64/hex data | Both layouts produced valid HLS. A media playlist without a resolution declaration does not produce an invented quality label. |
+| Filmpalast / FireStream | Read `data-player-url`, follow the declared host, parse `video-data` / `token-blob`, POST the normal resolve request | Inception, GoT S06E10 and Fallout S01E01 produced HLS. Fallout publishes a valid German WebVTT sidecar. |
+| Filmpalast / FlyFile | Public file metadata followed by the normal streaming assignment | Doctor Strange 2 produced an adaptive master and German/English sidecars. Its delivered master is 720p even though the upload filename contains 1080p. |
+| Filmpalast / Playmate | Published `/api/s` mapping, echoed file identity and HLS validation | The sampled Fallout API works, but its `oibusq.store` CDN zone returns an explicit Cloudflare service restriction. The resolver rejects that media response while preserving other hosters. |
+| Filmo / VOE | Fresh source cookies/CSRF, normal mint and controlled token redirect | Movie resolution succeeds on hosts that honor manual redirects. Cookies must be removed before leaving Filmo. |
+| Filmo / Byse | Same-origin HTML handoff, normal server attestation, automatic proof, authenticated playback data | The normal Doctor Strange 2 protocol produced a valid HLS master with English/German audio; native runtime requirements and computation limits below still apply. |
+
+## Byse's normal client protocol
+
+Filmo's Byse mint URL returns HTTP 200 HTML with an explicit `a.open` link. The
+link uses `noreferrer`; the provider starts a clean hoster context and never sends
+Filmo cookies, CSRF values or its mint token to Byse.
+
+Byse can publish a separate embed frame in its details. StreamNest follows that
+declared frame with the matching public video code and the parent context used
+by the site's own player. The ordinary access sequence is:
+
+1. Generate a fresh P-256 key for a single challenge signature.
+2. Request the source's access challenge and sign its exact nonce with
+   ECDSA/SHA-256. Send the public key, signature and actually available client
+   attributes to the normal attestation endpoint.
+3. Use the returned attestation in the source's automatic proof-of-work flow.
+   An actual image challenge is not treated as a successful automatic proof.
+4. Submit the verified token and attestation to the playback POST.
+5. Authenticate/decrypt the source-provided AES-GCM envelope, then validate its
+   HLS playlist and published subtitle data.
+
+No borrowed identity, fabricated browser telemetry, external solver service,
+private account key, player-script execution or hosted StreamNest service is used.
+Private signing keys are single-use and are not saved. A cryptographically secure
+randomness API is required; `Math.random` is not a substitute.
+
+Proof computation is limited to 20 seconds and 1,048,576 attempts. The optimized
+solver was substantially faster in V8 than in the QuickJS WASM test harness;
+neither is a physical iPhone benchmark. A difficult challenge on a slow runtime
+can still exhaust the budget. Duplicate Filmo language rows that point to the
+same Byse file share one resolution within a lookup.
+
+The portable P-256 fallback uses `elliptic` 6.6.1, for which npm reports the
+low-severity [GHSA-848j-6mx2-7j84](https://github.com/advisories/GHSA-848j-6mx2-7j84)
+and offers no patched version. This use is limited to a fresh ephemeral key and
+one challenge signature; it does not handle Xtream credentials or persistent
+account signing keys. Independent Node crypto verification tests check the
+signatures. This scope is not a claim that the dependency advisory is fixed.
+
+## Metadata and failure handling
+
+HLS masters are retained with their original adaptive renditions and audio graph.
+Only manifests are read during stream discovery; resolvers do not download video
+segments or encryption keys. Adapters that inspect the HLS playlist use its
+declared dimensions instead of an original upload's filename or byte size. VOE's
+existing parser reports source-declared player-title quality; that field has not
+been independently checked against its HLS master in this adapter.
+
+Known standard heights produce values such as `720p`. Nonstandard dimensions such
+as `1920x800` remain explicit dimensions. A default audio-language setting does
+not declare an audio-track inventory. Published labels such as `German (FORCED)`
+retain their display text and use the normalized language code `de`.
+
+At most three hoster requests are resolved concurrently. Identity matching remains
+case-sensitive where the source uses case-sensitive file codes. A blocked, expired
+or malformed mirror cannot suppress successful alternatives or become a fake
+playable result. See [verification](verification.md) and
+[client compatibility](native-compatibility.md) for the boundaries of testing.

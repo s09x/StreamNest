@@ -5,6 +5,9 @@ import { createMetadataProvider } from '../src/native/metadata.js';
 import { createWebProviders } from '../src/native/web.js';
 import { ProviderError } from '../src/native/errors.js';
 import { createHttpClient } from '../src/native/http.js';
+import { resolveVidara } from '../src/native/vidara.js';
+import { decodeVixeoSource, resolveVixeo } from '../src/native/vixeo.js';
+import { resolvePlaymate } from '../src/native/playmate.js';
 import type { ContentRequest, HttpClient, Identity, MetadataProvider, RequestOptions, TextResponse } from '../src/native/types.js';
 
 function encodeVoe(value: unknown): string {
@@ -270,17 +273,21 @@ test('Filmo never substitutes a movie for a series and checks release year befor
   assert.deepEqual(await providers.filmo(movieRequest), []);
 });
 
-test('Filmo rejects host auto-follow before acquiring cookies, resolving metadata, or minting a token', async () => {
+test('Filmo excludes VOE before acquiring a session when the host auto-follows redirects', async () => {
   const fixture = fixtureHttp(({ url, options }) => {
-    assert.equal(url, 'http://filmo.to/');
-    assert.equal(options.redirect, 'manual');
-    assert.equal(Object.keys(options.headers ?? {}).length, 0);
-    return response('https://filmo.to/', page('Filmo', 'Public home page'));
+    if (url === 'http://filmo.to/') {
+      assert.equal(options.redirect, 'manual');
+      assert.equal(Object.keys(options.headers ?? {}).length, 0);
+      return response('https://filmo.to/', page('Filmo', 'Public home page'));
+    }
+    if (url.includes('/search/suggest')) return json(url, { movies: [{ title: 'Inception', url: 'https://filmo.to/movies/inception' }] });
+    assert.equal(url, 'https://filmo.to/movies/inception');
+    return response(url, filmoDetail('unused-voe-payload'));
   });
   const guarded: HttpClient = { ...fixture.http, session() { assert.fail('No session may be acquired'); } };
-  const unusedMetadata: MetadataProvider = { async resolve() { assert.fail('No metadata lookup may precede the capability gate'); } };
-  await assert.rejects(createWebProviders(guarded, unusedMetadata).filmo(movieRequest), failure('unsupported_runtime'));
-  assert.equal(fixture.calls.length, 1);
+  await assert.rejects(createWebProviders(guarded, metadata()).filmo(movieRequest), failure('unsupported_runtime'));
+  assert.equal(fixture.calls.length, 3);
+  assert.equal(fixture.calls.some(call => call.url.startsWith('https://filmo.to/n')), false);
 });
 
 test('VOE rejects inconsistent redirects and preserves no fabricated default-audio inventory', async () => {
@@ -305,6 +312,183 @@ test('VOE prefers explicit language codes and names over country flags', async (
   })));
   const stream = await resolveVoe(fixture.http, 'https://voe.sx/abcdefgh1234', 'https://filmpalast.to/stream/example');
   assert.equal(stream.language, 'en / fr');
+});
+
+test('Doctor Strange 2 returns the exposed Vidara mirror when its VOE link is dead', async () => {
+  const title = 'Doctor Strange in the Multiverse of Madness';
+  const detail = 'https://filmpalast.to/stream/doctor-strange-in-the-multiverse-of-madness';
+  const embed = 'https://odysseusa.cc/e/ExampleFile12';
+  const source = 'https://media.example.invalid/doctor-strange/master.m3u8?fixture=1';
+  const identity: Identity = { type: 'movie', title, aliases: [title], year: 2022, tmdbId: '453395', imdbId: 'tt9419884' };
+  const fixture = fixtureHttp(({ url, options }) => {
+    if (url.includes('/search/title/')) return response(url, page('Filmpalast', `<a href="${detail}">${title}</a>`));
+    if (url === detail) return response(url, filmpalastDetail(title, 2022, ['https://voe.sx/deadfile1234', embed], 'Film', `${title}.German.1080p`));
+    if (url.startsWith('https://voe.sx/')) return response(url, page('404 - Not found', 'File not found'), 404);
+    if (url === 'https://odysseusa.cc/api/stream') {
+      assert.equal(options.method, 'POST');
+      assert.deepEqual(JSON.parse(options.body!), { filecode: 'ExampleFile12', device: 'web' });
+      assert.equal(options.headers?.Referer, embed);
+      assert.equal(options.headers?.Origin, 'https://odysseusa.cc');
+      assert.equal(Object.keys(options.headers ?? {}).some(key => /cookie|csrf|authorization/i.test(key)), false);
+      return json(url, { filecode: 'ExampleFile12', title: '', streaming_url: source, default_sub_lang: 'sq', subtitles: [
+        { type: 0, file_path: '/subtitles/de.ass', language: 'German' },
+        { type: 0, file_path: 'https://subtitles.example.invalid/en.srt', language: 'English' },
+        { type: 1, file_path: '/thumbnails/preview.jpg', language: 'Images' },
+      ] });
+    }
+    assert.equal(url, source, 'Only the HLS master is inspected; no media segments or captions are fetched');
+    return response(url, '#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1500000,RESOLUTION=1712x720,CODECS="avc1.640020,mp4a.40.2"\nvideo/720.m3u8\n');
+  });
+  const http: HttpClient = { ...fixture.http, session() { assert.fail('Vidara resolution must not acquire cookies'); } };
+  const streams = await createWebProviders(http, metadata(identity)).filmpalast({ type: 'movie', id: '453395', tmdbId: '453395' });
+  assert.equal(streams.length, 1);
+  assert.equal(streams[0]?.url, source);
+  assert.equal(streams[0]?.quality, '720p', 'Use actual master dimensions instead of the source page 1080p release label');
+  assert.match(streams[0]!.title, /1712x720.*AVC.*AAC/);
+  assert.equal(streams[0]?.language, undefined, 'Neither subtitles nor the upload release name establish this rendition audio inventory');
+  assert.deepEqual(streams[0]?.subtitles?.map(subtitle => subtitle.language), ['de', 'en']);
+  assert.equal(streams[0]?.subtitles?.[0]?.url, 'https://odysseusa.cc/subtitles/de.ass');
+  assert.equal(streams[0]?.subtitles?.[0]?.headers?.Referer, embed);
+});
+
+test('Vidara rejects wrong origins, mismatched file identity, malformed API data and credentialed media URLs', async () => {
+  const embed = 'https://odysseusa.cc/e/ExampleFile12';
+  const detail = 'https://filmpalast.to/stream/example';
+  const cases: Array<{ reply: unknown; finalUrl?: string; raw?: boolean; code?: string }> = [
+    { reply: { filecode: 'Different123', streaming_url: 'https://media.example.invalid/master.m3u8', subtitles: [] } },
+    { reply: { filecode: 'ExampleFile12', streaming_url: 'https://media.example.invalid/master.m3u8' }, finalUrl: 'https://other.example.invalid/api/stream' },
+    { reply: { filecode: 'ExampleFile12', streaming_url: 'https://synthetic:secret@media.example.invalid/master.m3u8' } },
+    { reply: { filecode: 'ExampleFile12', streaming_url: 'javascript:alert(1)' } },
+    { reply: { filecode: 'ExampleFile12', streaming_url: 'https://media.example.invalid/master.m3u8', subtitles: {} } },
+    { reply: '{"filecode":', raw: true, code: 'response_incomplete' },
+  ];
+  for (const entry of cases) {
+    const fixture = fixtureHttp(({ url }) => response(entry.finalUrl ?? url, entry.raw ? String(entry.reply) : JSON.stringify(entry.reply)));
+    await assert.rejects(resolveVidara(fixture.http, embed, detail), failure(entry.code ?? 'invalid_response'));
+    assert.equal(fixture.calls.length, 1, 'Do not follow an unvalidated media URL');
+  }
+  const unused = fixtureHttp(() => assert.fail('An unsupported origin must not be requested'));
+  await assert.rejects(resolveVidara(unused.http, 'https://other.example.invalid/e/ExampleFile12', detail), failure('invalid_response'));
+});
+
+test('Vidara preserves the HLS master and reports nonstandard crop dimensions without inventing a quality tier', async () => {
+  const source = 'https://media.example.invalid/master.m3u8?fixture=2';
+  const fixture = fixtureHttp(({ url }) => url.includes('/api/stream')
+    ? json(url, { filecode: 'ExampleFile12', streaming_url: source, title: 'Fixture', subtitles: [], default_audio_language: 'sq' })
+    : response(url, '#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="a",NAME="Deutsch",LANGUAGE="de",URI="de.m3u8"\n'
+      + '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="a",NAME="English",LANGUAGE="en",URI="en.m3u8"\n'
+      + '#EXT-X-STREAM-INF:RESOLUTION=1920x800,CODECS="hvc1.2.4.L153.B0,ec-3",AUDIO="a"\nhigh.m3u8\n'
+      + '#EXT-X-STREAM-INF:RESOLUTION=1280x534,CODECS="avc1.4d401f,mp4a.40.2",AUDIO="a"\nlow.m3u8\n'));
+  const result = await resolveVidara(fixture.http, 'https://odysseusa.cc/e/ExampleFile12', 'https://filmpalast.to/stream/example');
+  assert.equal(result.url, source);
+  assert.equal(result.quality, '1920x800');
+  assert.equal(result.language, 'de / en');
+  assert.match(result.title, /1920x800.*HEVC.*EAC3/);
+  assert.doesNotMatch(result.title, /HDR/);
+  assert.equal(fixture.calls.length, 2);
+});
+
+test('Vidara accepts the independently verified vidaraa.cc alias without creating a cookie session', async () => {
+  const fixture = fixtureHttp(({ url }) => url === 'https://vidaraa.cc/api/stream'
+    ? json(url, { filecode: 'ExampleFile12', title: 'original-upload.2160p.HEVC.mkv', streaming_url: 'https://media.example.invalid/master.m3u8', subtitles: null })
+    : response(url, '#EXTM3U\n#EXT-X-STREAM-INF:RESOLUTION=1280x720,CODECS="avc1.64001f,mp4a.40.2"\n720.m3u8\n'));
+  const result = await resolveVidara(fixture.http, 'https://vidaraa.cc/e/ExampleFile12', 'https://filmpalast.to/stream/example', 'Example');
+  assert.equal(result.quality, '720p');
+  assert.match(result.title, /^Example.*1280x720.*AVC.*AAC/);
+  assert.doesNotMatch(result.title, /2160p|HEVC/);
+  assert.equal(result.subtitles, undefined);
+  assert.equal(fixture.calls.every(call => call.session === 0), true);
+});
+
+function vixeoEncoded(url: string): string {
+  return Buffer.from(url, 'utf8').reverse().toString('hex').replace(/(.{10})/g, '$1|');
+}
+
+test('Vixeo current layout decodes only the base64 JSON config and binds its public video ID', async () => {
+  const embed = 'https://vixeo.io/e/ExampleFile12';
+  const source = 'https://media.example.invalid/master.m3u8?fixture=one%2Btwo';
+  const config = { videoId: 'ExampleFile12', source: vixeoEncoded(source), isMp4: false, title: 'opaque-upload-name',
+    subtitles: [{ path: '/subtitles/de.vtt?fixture=1', lang: 'de', isDefault: true }] };
+  const fixture = fixtureHttp(({ url }) => url === embed
+    ? response(url, page('Vixeo', `<div id="streamsonic-player-root" data-config="${Buffer.from(JSON.stringify(config)).toString('base64')}"></div><script>throw new Error('not executed')</script>`))
+    : response(url, '#EXTM3U\n#EXT-X-STREAM-INF:RESOLUTION=1920x800,CODECS="hvc1.2.4.L153.B0,ec-3"\nvideo.m3u8\n'));
+  const stream = await resolveVixeo(fixture.http, embed, 'https://filmpalast.to/stream/example', 'Verified title');
+  assert.equal(stream.url, source);
+  assert.equal(stream.quality, '1920x800');
+  assert.match(stream.title, /^Verified title.*1920x800.*HEVC.*EAC3/);
+  assert.equal(stream.subtitles?.[0]?.url, 'https://vixeo.io/subtitles/de.vtt?fixture=1');
+  assert.equal(stream.subtitles?.[0]?.headers?.Origin, 'https://vixeo.io');
+  assert.equal(stream.language, undefined, 'Caption language is not audio language');
+  assert.equal(fixture.calls.length, 2);
+});
+
+test('Vixeo legacy layout uses identity-bound hex source data and does not download MP4 files', async () => {
+  const embed = 'https://vidsonic.net/e/ExampleFile12';
+  const source = 'https://media.example.invalid/movie.mp4?fixture=2';
+  const fixture = fixtureHttp(({ url }) => {
+    assert.equal(url, embed);
+    return response(url, page('Vixeo legacy', `<div id="vsConfig" data-vs="${Buffer.from(JSON.stringify({ v: 'ExampleFile12', m: false, p: false })).toString('base64')}"></div>
+      <video id="video-player" data-subtitles='[]'></video><script>
+      const _0x1 = "${vixeoEncoded(source)}";
+      const _decode = function(s) { throw new Error('Do not execute player code'); };
+      let _videoUrl = _decode(_0x1); const isMp4 = true;
+      </script>`));
+  });
+  const stream = await resolveVixeo(fixture.http, embed, 'https://filmpalast.to/stream/example', 'Verified movie');
+  assert.equal(stream.url, source);
+  assert.equal(stream.title, 'Verified movie');
+  assert.equal(stream.quality, undefined);
+  assert.equal(fixture.calls.length, 1);
+});
+
+test('Vixeo rejects malformed encoding, mismatched IDs and credentialed decoded URLs before media lookup', async () => {
+  for (const value of ['odd', 'abz0', '|', vixeoEncoded('https://synthetic:password@media.example.invalid/master.m3u8')]) {
+    assert.throws(() => decodeVixeoSource(value), failure('invalid_response'));
+  }
+  const config = { videoId: 'WrongFile123', source: vixeoEncoded('https://media.example.invalid/master.m3u8'), isMp4: false, subtitles: [] };
+  const fixture = fixtureHttp(({ url }) => response(url, page('Vixeo', `<div id="streamsonic-player-root" data-config="${Buffer.from(JSON.stringify(config)).toString('base64')}"></div>`)));
+  await assert.rejects(resolveVixeo(fixture.http, 'https://vixeo.io/e/ExampleFile12', 'https://filmpalast.to/stream/example'), failure('invalid_response'));
+  assert.equal(fixture.calls.length, 1);
+});
+
+test('Playmate normal public API maps its declared abbreviated fields without inventing audio inventory', async () => {
+  const source = 'https://media.example.invalid/playmate.m3u8?fixture=1';
+  const fixture = fixtureHttp(({ url, options }) => {
+    if (url === 'https://playmate.to/api/s') {
+      assert.equal(options.method, 'POST');
+      assert.deepEqual(JSON.parse(options.body!), { c: 'ExampleFile12', d: 'web' });
+      assert.equal(options.headers?.Referer, 'https://playmate.to/embed/ExampleFile12');
+      return json(url, { cx: 'ExampleFile12', sx: source, tx: '', lx: 'en',
+        kx: [{ sk: 0, sf: '/subtitles/de.vtt', sl: 'German' }] });
+    }
+    assert.equal(url, source);
+    return response(url, '#EXTM3U\n#EXT-X-STREAM-INF:RESOLUTION=1280x720,CODECS="avc1.640020,mp4a.40.2"\nvideo.m3u8\n');
+  });
+  const stream = await resolvePlaymate(fixture.http, 'https://playmate.to/watch/ExampleFile12', 'https://filmpalast.to/stream/example', 'Verified episode');
+  assert.equal(stream.url, source);
+  assert.equal(stream.quality, '720p');
+  assert.equal(stream.language, undefined);
+  assert.equal(stream.subtitles?.[0]?.language, 'de');
+  assert.equal(stream.subtitles?.[0]?.url, 'https://playmate.to/subtitles/de.vtt');
+});
+
+test('Playmate JSON success is not advertised as playable when the actual HLS endpoint is blocked', async () => {
+  const fixture = fixtureHttp(({ url }) => url === 'https://playmate.to/api/s'
+    ? json(url, { cx: 'ExampleFile12', sx: 'https://media.example.invalid/blocked.m3u8', kx: [] })
+    : response(url, page('Just a moment', 'Challenge'), 403));
+  await assert.rejects(resolvePlaymate(fixture.http, 'https://playmate.to/watch/ExampleFile12', 'https://filmpalast.to/stream/example'), failure('source_blocked'));
+});
+
+test('Filmpalast attempts the actual FireStream data-player-url instead of a JavaScript href', async () => {
+  const fixture = fixtureHttp(({ url }) => {
+    if (url.includes('/search/title/')) return response(url, page('Filmpalast', '<a href="/stream/inception">Inception</a>'));
+    if (url.includes('/stream/')) return response(url, page('Film Inception Stream', `<article class="detail pDetails"><h2 class="bgDark">Inception</h2><p>Veröffentlicht: 2010</p>
+      <a class="iconPlay verystream" href="javascript:void(0)" data-player-url="https://firestream.to/e/Example1">Play</a></article>`));
+    assert.equal(url, 'https://firestream.to/e/Example1');
+    throw new ProviderError('source_blocked');
+  });
+  await assert.rejects(createWebProviders(fixture.http, metadata()).filmpalast(movieRequest), failure('source_blocked'));
+  assert.equal(fixture.calls.length, 3);
 });
 
 test('public source contract check (explicit opt-in; metadata and player HTML only)', {
