@@ -1,13 +1,13 @@
 {
   "name": "StreamNest",
-  "version": "0.1.4",
+  "version": "0.1.7",
   "description": "Native Nuvio providers for German movies and series, including user-configured Xtream VOD.",
   "author": "s09x",
   "scrapers": [
     {
       "id": "streamnest-filmpalast",
       "name": "Filmpalast",
-      "version": "0.1.4",
+      "version": "0.1.7",
       "filename": "providers/filmpalast.js",
       "supportedTypes": [
         "movie",
@@ -21,7 +21,7 @@
     {
       "id": "streamnest-filmo",
       "name": "Filmo",
-      "version": "0.1.4",
+      "version": "0.1.7",
       "filename": "providers/filmo.js",
       "supportedTypes": [
         "movie"
@@ -32,9 +32,23 @@
       "hasSettings": false
     },
     {
+      "id": "streamnest-huhu",
+      "name": "Huhu",
+      "version": "0.1.7",
+      "filename": "providers/huhu.js",
+      "supportedTypes": [
+        "movie",
+        "tv"
+      ],
+      "contentLanguage": [
+        "de"
+      ],
+      "hasSettings": false
+    },
+    {
       "id": "streamnest-xtream",
       "name": "Xtream VOD",
-      "version": "0.1.4",
+      "version": "0.1.7",
       "filename": "providers/xtream.js",
       "supportedTypes": [
         "movie",

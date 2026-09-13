@@ -2,6 +2,7 @@
 
 StreamNest uses five of the six hoster families found in the inspected Filmpalast
 movie and episode pages, and both hosters found in the inspected Filmo pages.
+Huhu supports the VOE and Vixeo/Vidsonic families returned by its MediaURL API.
 VIDARA is deliberately excluded from Filmpalast since 0.1.4 at the user's request.
 This is a dated source census, not a claim that upstream sites cannot add hosters.
 
@@ -15,6 +16,9 @@ This is a dated source census, not a claim that upstream sites cannot add hoster
 | Filmpalast / Playmate | Published `/api/s` mapping, echoed file identity and HLS validation | The sampled Fallout API works, but its `oibusq.store` CDN zone returns an explicit Cloudflare service restriction. The resolver rejects that media response while preserving other hosters. |
 | Filmo / VOE | Fresh source cookies/CSRF, normal mint and controlled token redirect | Movie resolution succeeds on hosts that honor manual redirects. Cookies must be removed before leaving Filmo. |
 | Filmo / Byse | Same-origin HTML handoff, normal server attestation, automatic proof, authenticated playback data | The normal Doctor Strange 2 protocol produced a valid HLS master with English/German audio; native runtime requirements and computation limits below still apply. |
+| Huhu / VOE | Validated movie/episode identity, direct public hoster link, normal VOE redirects/data and HLS inspection | Inception and Fallout S01E01 produced valid HLS. The Inception upload label says 1080p while the delivered master is 720p; the provider reports the manifest resolution. |
+| Huhu / Vixeo | Existing `vidsonic.net` / `vixeo.io` decoder and HLS inspection | Inception and Matrix produced 720p HLS through Vidsonic. |
+| Huhu / other hosters | Not offered by this provider; no requests to unsupported hosters during discovery | The sampled list also contained Dood, Vidoza, Supervideo, Mixdrop, Veev, Streamtape and LuluVdo. A direct Supervideo probe returned Cloudflare 403 and the Vidoza sample returned 404. The other families were inventoried without a complete native playback check. |
 
 ## Byse's normal client protocol
 
@@ -60,8 +64,13 @@ HLS masters are retained with their original adaptive renditions and audio graph
 Only manifests are read during stream discovery; resolvers do not download video
 segments or encryption keys. Adapters that inspect the HLS playlist use its
 declared dimensions instead of an original upload's filename or byte size. VOE's
-existing parser reports source-declared player-title quality; that field has not
-been independently checked against its HLS master in this adapter.
+existing Filmpalast/Filmo paths report source-declared player-title quality; that
+field has not been independently checked against the HLS master in those paths.
+Huhu additionally inspects VOE URLs ending in `.m3u8` and uses the actual HLS
+resolution. If that playlist contains no resolution, the upload tier is not
+reinstated. Huhu preserves source-declared language labels when neither the
+manifest nor the player supplies an audio inventory; those labels do not claim
+an exhaustive list of embedded tracks.
 
 Known standard heights produce values such as `720p`. Nonstandard dimensions such
 as `1920x800` remain explicit dimensions. A default audio-language setting does

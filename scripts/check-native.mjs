@@ -11,7 +11,7 @@ const values = Object.fromEntries(process.argv.slice(2).reduce((pairs, value, in
   return pairs;
 }, []));
 const provider = values.provider;
-if (!['filmpalast', 'filmo', 'xtream'].includes(provider) || !values.id || !values.type) {
+if (!['filmpalast', 'filmo', 'huhu', 'xtream'].includes(provider) || !values.id || !values.type) {
   throw new Error('Use --provider, --id and --type; optional --season, --episode, --limit, --redirects and --url-runtime.');
 }
 const redirects = values.redirects ?? 'manual';

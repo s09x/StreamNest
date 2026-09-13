@@ -3,7 +3,8 @@
 StreamNest installs as a native repository: root `manifest.json`, `scrapers`, and
 the referenced JavaScript files. Every stream lookup runs on the Nuvio device.
 Public TMDB and Cinemeta endpoints supply title, year, and identity metadata to
-the JavaScript providers. GitHub supplies the manifest and provider bundles.
+Filmpalast, Filmo and Xtream. Huhu obtains its identity metadata directly from its
+own public MediaURL interface. GitHub supplies the manifest and provider bundles.
 
 ## Build and platform prerequisites
 
@@ -56,6 +57,15 @@ Nuvio normally supplies a typed TMDB identity with `movie` or `tv`. StreamNest a
 validates IMDb and compatible prefixed IDs and rejects conflicting episode
 coordinates. Xtream exports `onSettings()` and declares `hasSettings: true`.
 The settings keys are `host`, `username`, and `password`.
+
+Huhu declares no settings. It uses JSON POST requests to its own `item` and
+`source` endpoints, then the existing VOE and Vixeo/Vidsonic resolvers. This path
+needs neither Filmo's cookie/CSRF handoff nor Byse's secure-randomness feature.
+Its source responses are limited to 1,048,576 characters; incomplete or oversized
+JSON is an explicit failure. Source selection permits at most 256 rows and 32
+distinct supported mirrors rather than silently truncating an oversized list.
+The provider runs with standard and modeled Mobile URL bindings in QuickJS at a
+256 KiB stack limit. Physical-device playback still requires user verification.
 
 The providers read Nuvio's `fetch`, URL APIs, and `SCRAPER_SETTINGS`. Parser and
 decoder dependencies are bundled. They do not use Node filesystem/network APIs,

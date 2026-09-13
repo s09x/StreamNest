@@ -16,9 +16,14 @@ const provider = args.provider;
 const mode = args.mode ?? 'streams';
 const redirects = args.redirects ?? 'follow';
 if (!['follow', 'manual'].includes(redirects)) throw new Error('Invalid redirect mode');
-if (!['xtream', 'filmpalast', 'filmo'].includes(provider) || !['settings', 'streams'].includes(mode)
+if (!['xtream', 'filmpalast', 'filmo', 'huhu'].includes(provider) || !['settings', 'streams'].includes(mode)
   || (mode === 'streams' && (provider === 'xtream' || !args.id))) {
-  throw new Error('Use --provider xtream --mode settings, or --provider filmpalast|filmo --id TMDB_ID.');
+  throw new Error('Use --provider xtream --mode settings, or --provider filmpalast|filmo|huhu --id TMDB_ID; optional --type, --season, --episode.');
+}
+const season = args.season === undefined ? undefined : Number(args.season);
+const episode = args.episode === undefined ? undefined : Number(args.episode);
+if ([season, episode].some(value => value !== undefined && (!Number.isSafeInteger(value) || value < 0))) {
+  throw new Error('Invalid season or episode');
 }
 const client = resolve(args['client-root'] ?? resolve(root, '../NuvioMobile-Enhanced'));
 const clientRef = args['client-ref'];
@@ -58,7 +63,8 @@ if (usesStaticBindings) {
   callCode = calls[mode === 'settings' ? 0 : 1][1]
     .replace(/\$tmdbIdArg/g, () => JSON.stringify(args.id))
     .replace(/\$mediaTypeArg/g, () => JSON.stringify(args.type ?? 'movie'))
-    .replace(/\$(?:seasonArg|episodeArg)/g, 'undefined');
+    .replace(/\$seasonArg/g, () => season === undefined ? 'undefined' : String(season))
+    .replace(/\$episodeArg/g, () => episode === undefined ? 'undefined' : String(episode));
 }
 const vm = (await getQuickJS()).newContext();
 const started = Date.now();
@@ -108,7 +114,7 @@ function evaluate(code) {
 try {
   register('__get_scraper_id', () => `streamnest-${provider}`);
   register('__get_scraper_settings', () => '{}');
-  register('__get_call_args', () => JSON.stringify({ tmdbId: args.id, mediaType: args.type ?? 'movie' }));
+  register('__get_call_args', () => JSON.stringify({ tmdbId: args.id, mediaType: args.type ?? 'movie', season, episode }));
   register('__capture_result', value => { captured = JSON.parse(value); });
   register('__capture_settings_result', value => { captured = JSON.parse(value); });
   register('__parse_url', input => {

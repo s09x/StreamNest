@@ -6,10 +6,10 @@ provider/server combination works.
 
 ## Automated checks
 
-The 0.1.4 local `npm run check` on Node.js 25.6.1 passed 149 tests with zero
+The Huhu integration's local `npm run check` on Node.js 25.6.1 passed 167 tests with zero
 failures. One public network test is opt-in and remains excluded from CI; the
-separate built-provider live checks below were run explicitly. The earlier 0.1.1
-check on Node.js 24.21.0 passed 136 tests. The runtime dependency audit reports one low-severity
+separate built-provider live checks below were run explicitly. The earlier 0.1.4
+check passed 149 tests, and 0.1.1 on Node.js 24.21.0 passed 136 tests. The runtime dependency audit reports one low-severity
 `elliptic` advisory with no patched release; its narrowly scoped use and remaining
 limitation are documented in [hoster verification](hosters.md).
 
@@ -52,6 +52,11 @@ and runs unit and QuickJS tests. The tests cover:
   season/episode selection.
 - Iterative DOM text extraction, including decoded Unicode, comments, CDATA,
   script/style text and deeply nested markup in a 256 KiB QuickJS stack.
+- Huhu's direct TMDB/IMDb identity lookup, exact episodes and specials, empty-name
+  placeholders, echoed nonexistent episodes, API failures and response bounds.
+- Huhu VOE/Vixeo resolution, HLS versus upload quality, declared languages,
+  subtitle headers, duplicate mirrors, deterministic concurrency and isolated
+  failures, including built-provider execution in a 256 KiB QuickJS stack.
 
 The public live test in `test/web.test.ts` is opt-in and excluded from ordinary CI.
 It was run separately during 0.1.0 development. Fixtures and CI contain no real accounts
@@ -258,12 +263,74 @@ The Xtream account checks above preceded the final supplemental-variant fix;
 that fix and the complete final bundles passed the fixture and QuickJS suite.
 The account was not queried again merely to repeat the same catalog downloads.
 
+## Huhu integration
+
+Direct checks on 2026-09-13 followed the public
+[Huhu client script](https://huhu.to/assets/index-CyRgdH9q.js). The site sends JSON
+POST requests with `language: "de"` and `region: "DE"` to
+`/mediaurl-item.json` and `/mediaurl-source.json`. Movie requests use
+`type: "movie"`; series requests use `type: "series"` and source lookups include
+`episode: { ids: {}, season, episode }`.
+
+The item endpoint accepted both TMDB and IMDb identities for Inception and
+Fallout. An unknown movie returned HTTP 200 with an empty name and echoed ID.
+An item lookup for Fallout S99E01 echoed that nonexistent episode at the top
+level while returning the real episode list separately. The provider therefore
+validates the returned media type and IDs, requires a populated title, and uses
+only actual episode-list entries to authorize a series source lookup.
+
+The source endpoint returned ordinary hoster links, not native playable URLs.
+The provider resolves only VOE and Vixeo/Vidsonic, retains source language/tag
+metadata and published subtitles, deduplicates equivalent links, and runs no
+more than three mirrors concurrently. It rejects oversized or malformed API
+responses and isolates individual mirror failures. Other source-listed hosters
+remain outside its implemented coverage.
+
+The 18 Huhu tests passed after TypeScript validation and a fresh native build.
+They include four complete QuickJS workflows covering TMDB movies and IMDb
+specials under standard and modeled Mobile URL APIs, with the 256 KiB native
+stack limit and without Node globals. The cases also cover invalid identities,
+unlisted/ambiguous episodes, source errors inside HTTP 200, signed query
+preservation, unsupported/malformed mirrors, ordering and concurrency, expired
+HLS, subtitle headers, and missing resolution/language declarations.
+
+Source/hoster probes found valid HLS for Inception and Fallout S01E01 through
+VOE, plus Inception and Matrix through Vixeo/Vidsonic. The VOE Inception upload
+label said 1080p while the master declared 1728x720. Fallout's sampled master
+declared 1280x536. These dimensions are retained without inventing a standard
+resolution tier. Only metadata and playlists were read; media segments, keys
+and account credentials were not fetched or saved.
+
+The generated Huhu bundle was also executed through the original Nuvio
+Enhanced 0.4.14 JavaScript bindings in QuickJS, with automatically followed HTTP
+redirects and the 256 KiB stack limit:
+
+| Request | Result | Requests / elapsed time |
+| --- | --- | --- |
+| Inception, TMDB 27205 | Three streams: two German 720p alternatives through VOE and Vixeo, plus French 360p VOE | 10 / 7.3 s |
+| Matrix, TMDB 603 | One German 720p Vixeo stream | 4 / 4.6 s |
+| Fallout S01E01, IMDb tt12637874 | Four VOE streams: German 1280x536, 720p and 1080p, plus French 720x300 | 14 / 13.1 s |
+
+All three runs captured zero client/provider JavaScript errors. The largest
+response was 159,959 bytes. These samples supplied no external subtitles;
+subtitle preservation was verified with the fixture workflows. Reproduce them
+with `node scripts/check-enhanced.mjs --provider huhu --client-ref 0.4.14
+--redirects follow --id 27205 --type movie`, substituting the other ID and adding
+`--type tv --season 1 --episode 1` for Fallout. The checker adapts native HTTP
+calls to Node; it does not operate the installed app or validate device playback,
+seeking or audio selection.
+
 ## Manual acceptance
 
 After publication, install the public GitHub repository in Nuvio. Check the
 relevant [client prerequisites](native-compatibility.md), then verify a film and
 an exact episode, badge display with the configured preset, audio/subtitle
 selection, forced subtitles, seeking, resume and next-episode behavior.
+
+For Huhu, start with Inception (TMDB 27205), Matrix (TMDB 603), and Fallout
+(TMDB 106379) S01E01. Check the offered language and hoster labels, then verify
+that moving to another episode requests that episode's sources. Live fixtures
+do not establish audio selection or playback behavior in the installed app.
 
 Device testing is performed by the user. Known client SDK limitations must remain
 visible in the compatibility notes rather than being described as successful tests.

@@ -21,11 +21,10 @@ https://raw.githubusercontent.com/s09x/StreamNest/main/manifest.json
 The compiled files in `providers/` are included in the repository. Node.js and the
 development tools are not needed to use the providers in Nuvio.
 
-Version 0.1.4 replaces Filmo's recursive page-text extraction after an iOS stack
-overflow report and excludes VIDARA from Filmpalast. It retains 0.1.3's native
-URL compatibility corrections and faster supported Xtream catalog lookup. After
-updating, refresh the repository and check that the installed providers show
-**0.1.4**.
+Version 0.1.7 adds **Huhu** for movies and series through VOE and Vixeo/Vidsonic.
+It retains the earlier Filmo stack-overflow fix, Filmpalast VIDARA exclusion,
+native URL corrections and faster supported Xtream catalog lookup. After updating,
+refresh the repository and check that the installed providers show **0.1.7**.
 
 ## Providers
 
@@ -33,6 +32,7 @@ updating, refresh the repository and check that the installed providers show
 | --- | --- | --- |
 | Filmpalast | Movies and series episodes | None |
 | Filmo | Movies through VOE and Byse | None |
+| Huhu | Movies and exact series episodes through VOE and Vixeo/Vidsonic | None |
 | Xtream VOD | Movies and series from your account | Host, username, password in native provider settings |
 
 Filmpalast uses **VOE, Vixeo, FireStream, FlyFile and Playmate**. VIDARA links,
@@ -46,6 +46,15 @@ Its VOE handoff requires a fetch bridge that honors manual redirects so Filmo's
 session cookie can be removed before crossing origins. Byse uses a same-origin
 HTML handoff; it can be used independently of that VOE requirement. Duplicate
 Byse destinations within one lookup share the same resolution work.
+
+Huhu uses the site's published MediaURL interface and accepts TMDB or IMDb IDs.
+It validates the returned identity and checks a series episode against the actual
+episode list before requesting its mirrors. Source language labels and published
+subtitles are retained; HLS resolution takes precedence over an upload filename.
+Duplicate links share resolution work, at most three mirrors run concurrently,
+and successful alternatives survive individual failures. Only **VOE and
+Vixeo/Vidsonic** are supported for this source. Other listed hosters are skipped;
+see [hoster coverage](docs/hosters.md) for the observed limits.
 
 Byse performs its published server attestation and automatic proof-of-work and
 authenticates the returned playback data before using it. This requires a secure
