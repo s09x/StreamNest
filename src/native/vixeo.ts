@@ -1,3 +1,4 @@
+import { resolveUrl } from './url.js';
 import { load } from 'cheerio/slim';
 import { ProviderError } from './errors.js';
 import { objectValue, responseText } from './metadata.js';
@@ -9,7 +10,7 @@ const ORIGINS = new Set(['https://vidsonic.net', 'https://vixeo.io']);
 
 export function isVixeoUrl(value: string): boolean {
   try {
-    const url = new URL(value);
+    const url = resolveUrl(value);
     return ORIGINS.has(url.origin) && /^\/e\/[A-Za-z0-9]{8,32}\/?$/.test(url.pathname)
       && !url.username && !url.password && !url.search && !url.hash;
   } catch { return false; }
@@ -59,9 +60,9 @@ function captionTracks(value: unknown, embedUrl: string, headers: Record<string,
 /** Support both observed Vixeo player layouts using their data, never their SDK code. */
 export async function resolveVixeo(http: HttpClient, embedUrl: string, sourcePage: string, titleHint?: string): Promise<NativeStream> {
   if (!isVixeoUrl(embedUrl)) throw new ProviderError('invalid_response');
-  const requestedId = new URL(embedUrl).pathname.split('/').filter(Boolean).pop()!;
+  const requestedId = resolveUrl(embedUrl).pathname.split('/').filter(Boolean).pop()!;
   const response = await http.request(embedUrl, { headers: { 'User-Agent': 'Mozilla/5.0', Referer: httpUrl(sourcePage) } });
-  if (!isVixeoUrl(response.url) || new URL(response.url).pathname.split('/').filter(Boolean).pop() !== requestedId) {
+  if (!isVixeoUrl(response.url) || resolveUrl(response.url).pathname.split('/').filter(Boolean).pop() !== requestedId) {
     throw new ProviderError('invalid_response');
   }
   const $ = load(responseText(response));
@@ -91,7 +92,7 @@ export async function resolveVixeo(http: HttpClient, embedUrl: string, sourcePag
     suppliedTitle = $('title').first().text().trim();
   }
   const url = decodeVixeoSource(encoded);
-  const headers = { 'User-Agent': 'Mozilla/5.0', Referer: response.url, Origin: new URL(response.url).origin };
+  const headers = { 'User-Agent': 'Mozilla/5.0', Referer: response.url, Origin: resolveUrl(response.url).origin };
   const tracks = captionTracks(subtitles, response.url, headers);
   const technical = isMp4 ? { details: [] as string[], quality: undefined, language: undefined }
     : await resolveHlsMetadata(http, url, headers);

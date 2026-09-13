@@ -1,3 +1,4 @@
+import { resolveUrl } from './url.js';
 import { ProviderError } from './errors.js';
 import { resolveHlsMetadata } from './hls.js';
 import { jsonResponse, objectValue } from './metadata.js';
@@ -9,7 +10,7 @@ const API = 'https://api.flyfile.app/api';
 
 export function isFlyfileUrl(input: string): boolean {
   try {
-    const url = new URL(input);
+    const url = resolveUrl(input);
     return url.origin === ORIGIN && /^\/(?:v|e|embed)\/[A-Za-z0-9_-]{6,128}\/?$/.test(url.pathname)
       && !url.search && !url.hash && !url.username && !url.password;
   } catch { return false; }
@@ -46,7 +47,7 @@ function sidecars(value: unknown, embed: string, headers: Record<string, string>
     const rawUrl = text(row?.url, 16000);
     if (!row || !rawUrl) throw new ProviderError('invalid_response');
     const url = httpUrl(rawUrl, embed);
-    if (new URL(url).protocol !== 'https:') throw new ProviderError('invalid_response');
+    if (resolveUrl(url).protocol !== 'https:') throw new ProviderError('invalid_response');
     const code = language(row.lang) ?? 'und';
     const key = `${url}\n${code}`;
     if (seen.has(key)) continue;
@@ -65,7 +66,7 @@ export async function resolveFlyfile(http: HttpClient, embedUrl: string, sourceP
   for (let attempt = 0; attempt < 3; attempt++) {
     if (!isFlyfileUrl(embed) || seen.has(embed)) throw new ProviderError('invalid_response');
     seen.add(embed);
-    const filecode = new URL(embed).pathname.split('/').filter(Boolean).pop()!;
+    const filecode = resolveUrl(embed).pathname.split('/').filter(Boolean).pop()!;
     const headers = { 'User-Agent': 'Mozilla/5.0', Referer: embed, Origin: ORIGIN, 'x-flyfile-host': 'flyfile.app' };
     const endpoint = `${API}/public/file/${filecode}`;
     const metadataResponse = await http.request(endpoint, { headers });
@@ -97,7 +98,7 @@ export async function resolveFlyfile(http: HttpClient, embedUrl: string, sourceP
     const base = text(assignment?.url, 16000);
     const token = text(assignment?.token, 1024);
     if (!base || !token || !/^[A-Za-z0-9._~-]+$/.test(token)) throw new ProviderError('invalid_response');
-    const target = new URL(httpUrl(base));
+    const target = resolveUrl(httpUrl(base));
     if (target.protocol !== 'https:' || !target.hostname.endsWith('.flyfile.app') || target.search || target.hash) {
       throw new ProviderError('invalid_response');
     }

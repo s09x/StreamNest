@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createContext, Script } from 'node:vm';
 import { httpUrl } from '../src/native/voe.js';
+import { resolveUrl } from '../src/native/url.js';
 import { ProviderError } from '../src/native/errors.js';
 import { mobileUrlBindings } from './helpers/nuvio-mobile-url.mjs';
 
@@ -24,7 +25,20 @@ for (const mobile of [false, true]) {
         ['https://cdn.example.invalid/signed.m3u8?fixture=a%2Bb%3D', 'https://source.example.invalid/'],
       ];
       for (const [reference, base] of references) {
-        assert.equal(httpUrl(reference!, base), new nativeURL(reference!, base).href);
+        const expected = new nativeURL(reference!, base);
+        const actual = resolveUrl(reference!, base);
+        assert.equal(httpUrl(reference!, base), expected.href);
+        assert.equal(actual.href, expected.href);
+        assert.equal(actual.search, expected.search);
+        assert.equal(actual.hash, expected.hash);
+      }
+      for (const suffix of ['', '?', '#', '?#', '?signed=a%2Bb%3D', '#real-fragment']) {
+        const input = `https://cdn.example.invalid/stream.m3u8${suffix}`;
+        const actual = resolveUrl(input);
+        const expected = new nativeURL(input);
+        assert.equal(actual.href, expected.href, 'URL normalization must not rewrite the supplied address');
+        assert.equal(actual.search, expected.search);
+        assert.equal(actual.hash, expected.hash);
       }
       for (const reference of ['//user:password@example.invalid/file', '//user%40example.invalid/file',
         'https://user:password@example.invalid/file', 'javascript:alert(1)', 'file:///private', '/bad\nheader', '\\\\example.invalid/file']) {

@@ -44,6 +44,7 @@ function mockHttp(handler: Handler): HttpClient & { calls: Array<{ url: string; 
 }
 
 interface Fixture {
+  bulk?: unknown;
   categories?: unknown;
   rows?: Record<string, unknown>;
   auth?: unknown;
@@ -69,7 +70,7 @@ function fixture(options: Fixture = {}) {
     if (!action) return options.auth === undefined ? { user_info: { auth: 1, status: 'Active' } } : options.auth;
     if (action.endsWith('_categories')) return options.categories === undefined ? [category(1)] : options.categories;
     if (action === 'get_vod_streams' || action === 'get_series') {
-      assert.ok(form.has('category_id'), 'never issue an unbounded full-catalog call');
+      if (!form.has('category_id')) return options.bulk === undefined ? new Raw('Unsupported bulk catalog', 404) : options.bulk;
       await options.onCategory?.(form.get('category_id')!);
       const key = form.get('category_id')!;
       return options.rows && Object.prototype.hasOwnProperty.call(options.rows, key)
@@ -135,6 +136,50 @@ test('authentication checks the actual auth flag and active status before catalo
   await assert.rejects(createXtreamProvider(fixture({ auth: {} }), meta(), settings).getStreams(parseRequest('27205', 'movie')), errorCode('invalid_response'));
 });
 
+test('a complete bulk catalog resolves an exact movie in three requests without scanning categories', async () => {
+  const http = fixture({ bulk: [movie(1)], categories: Array.from({ length: 58 }, (_, index) => category(index + 1)),
+    onCategory: async () => { assert.fail('Complete bulk results must not trigger category downloads'); } });
+  const streams = await createXtreamProvider(http, meta(), settings).getStreams(parseRequest('27205', 'movie'));
+  assert.equal(streams.length, 1);
+  assert.ok(streams[0]!.url.endsWith('/1.mkv'));
+  assert.deepEqual(http.calls.map(call => call.form.get('action')), [null, 'get_vod_streams', 'get_vod_info']);
+});
+
+test('a complete bulk series catalog resolves the exact episode in three requests', async () => {
+  const http = fixture({ bulk: [series(10)] });
+  const streams = await createXtreamProvider(http, meta(showIdentity), settings).getStreams(parseRequest('70523', 'tv', 1, 1));
+  assert.ok(streams[0]!.url.endsWith('/101.mkv'));
+  assert.deepEqual(http.calls.map(call => call.form.get('action')), [null, 'get_series', 'get_series_info']);
+});
+
+test('bulk lookup preserves all variants and duplicate memberships before checking their details', async () => {
+  const http = fixture({ bulk: [movie(1), movie(2), movie(1), movie(3, '603', 'The Matrix (1999)')] });
+  const streams = await createXtreamProvider(http, meta(), settings).getStreams(parseRequest('27205', 'movie'));
+  assert.equal(streams.length, 2);
+  assert.deepEqual(http.calls.filter(call => call.form.get('action') === 'get_vod_info').map(call => call.form.get('vod_id')), ['1', '2']);
+  assert.equal(http.calls.some(call => call.form.has('category_id')), false);
+});
+
+test('incomplete, oversized, unsupported and empty bulk responses fall back to complete categories', async () => {
+  for (const bulk of [new Raw('[{"stream_id":9'), new Raw(' '.repeat(8 * 1024 * 1024 + 1) + '[]'),
+    new Raw('Unsupported', 404), null, { error: 'Unsupported bulk operation' }, []]) {
+    const http = fixture({ bulk, rows: { 1: [movie(2)] } });
+    const streams = await createXtreamProvider(http, meta(), settings).getStreams(parseRequest('27205', 'movie'));
+    assert.equal(streams.length, 1);
+    assert.ok(streams[0]!.url.endsWith('/2.mkv'));
+    assert.equal(http.calls.filter(call => call.form.has('category_id')).length, 1);
+  }
+});
+
+test('bulk authentication failures and rate limits do not fan out into category requests', async () => {
+  for (const status of [401, 403, 429]) {
+    const http = fixture({ bulk: new Raw('Rejected', status) });
+    await assert.rejects(createXtreamProvider(http, meta(), settings).getStreams(parseRequest('27205', 'movie')),
+      errorCode(status === 429 ? 'request_failed' : 'authentication_failed'));
+    assert.equal(http.calls.length, 2);
+  }
+});
+
 test('all categories are completed at concurrency three, duplicate memberships deduplicate and variants survive', async () => {
   let active = 0; let maximum = 0;
   const http = fixture({
@@ -150,9 +195,9 @@ test('all categories are completed at concurrency three, duplicate memberships d
   assert.ok(streams[0]!.url.endsWith('/1.mkv'));
   assert.ok(streams[1]!.url.endsWith('/2.mkv'));
   assert.ok(streams[0]!.url.includes('/synthetic%20user/synthetic%26%2Fpassword/'));
-  assert.equal(http.calls.filter(call => call.form.get('action') === 'get_vod_streams').length, 5);
+  assert.equal(http.calls.filter(call => call.form.get('action') === 'get_vod_streams' && call.form.has('category_id')).length, 5);
   await provider.getStreams(parseRequest('27205', 'movie'));
-  assert.equal(http.calls.filter(call => call.form.get('action') === 'get_vod_streams').length, 10, 'no false persistent/global catalog cache');
+  assert.equal(http.calls.filter(call => call.form.get('action') === 'get_vod_streams' && call.form.has('category_id')).length, 10, 'no false persistent/global catalog cache');
 });
 
 test('truncated required movie categories never return an early successful match or use XML', async () => {
@@ -336,7 +381,7 @@ test('a transient XML gateway timeout receives one retry and still requires curr
 test('persistent metadata 503 responses stop after two requests for both JSON and XML', async () => {
   const json = fixture({ rows: { 1: new Raw('Service unavailable', 503) } });
   await assert.rejects(createXtreamProvider(json, meta(), settings).getStreams(parseRequest('27205', 'movie')), errorCode('request_failed'));
-  assert.equal(json.calls.filter(call => call.form.get('action') === 'get_vod_streams').length, 2);
+  assert.equal(json.calls.filter(call => call.form.get('action') === 'get_vod_streams' && call.form.has('category_id')).length, 2);
   let xmlAttempts = 0;
   const xml = fixture({ rows: { 1: new Raw('[') }, legacy: () => { xmlAttempts++; return new Raw('Service unavailable', 503); } });
   await assert.rejects(createXtreamProvider(xml, meta(showIdentity), settings).getStreams(parseRequest('70523', 'tv', 1, 1)), errorCode('request_failed'));
@@ -348,11 +393,11 @@ test('metadata retries exclude rate limits, bad requests, auth rejection and cha
   for (const status of [400, 401, 403, 429]) {
     const http = fixture({ rows: { 1: new Raw('Rejected', status) } });
     await assert.rejects(createXtreamProvider(http, meta(), settings).getStreams(parseRequest('27205', 'movie')));
-    assert.equal(http.calls.filter(call => call.form.get('action') === 'get_vod_streams').length, 1);
+    assert.equal(http.calls.filter(call => call.form.get('action') === 'get_vod_streams' && call.form.has('category_id')).length, 1);
   }
   const challenge = fixture({ rows: { 1: new Raw('<title>Just a moment</title>', 503) } });
   await assert.rejects(createXtreamProvider(challenge, meta(), settings).getStreams(parseRequest('27205', 'movie')), errorCode('source_blocked'));
-  assert.equal(challenge.calls.filter(call => call.form.get('action') === 'get_vod_streams').length, 1);
+  assert.equal(challenge.calls.filter(call => call.form.get('action') === 'get_vod_streams' && call.form.has('category_id')).length, 1);
 });
 
 test('oversized series detail uses complete info plus exact legacy season and episode without an unrelated metadata lookup', async () => {

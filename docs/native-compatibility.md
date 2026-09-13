@@ -78,6 +78,19 @@ The regression fixture intentionally retains the Mobile relative-resolution bug;
 it uses host-backed absolute parsing and does not reproduce every Ktor or
 URLSearchParams detail. Earlier tests used standard URL APIs and missed this bug.
 
+The later 0.1.3 investigation found a second native mismatch. Ktor 3.4.1 returns
+non-null empty strings for absent `encodedQuery` and `encodedFragment`, but the
+bridge prefixes both unconditionally. Thus a URL with neither component gets
+`search: '?'` and `hash: '#'`. StreamNest previously treated those properties as
+real content and rejected valid source/hoster links. All provider URL parsing now
+uses the shared adapter, which normalizes only those bare properties to empty
+strings. It preserves `href`, real parameters, fragments and signed values.
+The host constructor is unchanged. The fixture and live checker now reproduce
+the Ktor empty-component behavior; their earlier Node-based adapters missed it.
+
+- [Ktor encoded query and fragment](https://github.com/ktorio/ktor/blob/3.4.1/ktor-http/common/src/io/ktor/http/Url.kt#L182)
+- [Enhanced native URL mapping](https://github.com/luqmanfadlli/NuvioMobile-Enhanced/blob/111eaa807a39ee550dc1f91630535d39c8fc4ef9/composeApp/src/fullCommonMain/kotlin/com/nuvio/app/features/plugins/runtime/network/UrlBridge.kt#L36)
+
 - [Mobile URL bindings](https://github.com/NuvioMedia/NuvioMobile/blob/13cd02040a6e9b8bc3b5a51c4925fb0603597955/composeApp/src/fullCommonMain/kotlin/com/nuvio/app/features/plugins/runtime/js/JsBindings.kt)
 
 ## Client-side settings limitation
@@ -103,14 +116,9 @@ unknown manifest properties. Host/password synchronization across those clients
 would require a Nuvio-side feature. No client modification or substitute transport
 has been made by this repository.
 
-The separately reported iOS gear-button failure has not been reproduced in the
-provider entry point: both the 0.1.1 and 0.1.2 bundles return `host`, `username` and
-`password` during actual Hermes 0.11.0 dynamic execution; 0.1.2 also passes QuickJS
-settings tests with standard and modeled Mobile URL bindings. Mobile's inspected
-screen opens the dialog only when its settings-layout call returns non-null.
-Determining why that call fails on the user's device still requires its exact
-installed app/provider versions or a device plugin-loading error. The URL fix is
-not evidence that this UI report is resolved.
+Both the 0.1.1 and 0.1.2 provider bundles return `host`, `username` and `password`
+in isolation. Those earlier tests did not exercise the failing Enhanced client
+bootstrap described below. The URL correction does not fix that startup failure.
 
 The user-supplied [Showbox provider](https://raw.githubusercontent.com/yoruix/nuvio-providers/refs/heads/multi-file-providers/providers/showbox.js)
 is a different configuration path: the inspected file exports only `getStreams`,
@@ -121,6 +129,28 @@ in the app. A working Showbox cookie input therefore does not by itself establis
 generic provider-settings support. This source comparison does not identify the
 exact installed iOS build, and StreamNest does not impersonate Showbox to trigger
 that dedicated UI.
+
+### Nuvio Enhanced settings regression
+
+The later user-supplied repository identifies a concrete failing implementation:
+[NuvioMobile-Enhanced at 111eaa807a39ee550dc1f91630535d39c8fc4ef9](https://github.com/luqmanfadlli/NuvioMobile-Enhanced/tree/111eaa807a39ee550dc1f91630535d39c8fc4ef9).
+Its settings loader evaluates `JsBindings.staticPolyfillCode` before registering
+`HostFunctions`. The first lines call `__get_scraper_id()` and
+`__get_scraper_settings()`, producing `ReferenceError: '__get_scraper_id' is not
+defined`. The exception is converted to `null`, and the gear-button handler only
+opens a dialog for a non-null result. The provider has not executed at that point.
+
+This failure was reproduced in QuickJS using the exact client polyfill source.
+Registering the host getters, result callback and required URL/crypto/fetch
+bridges before the polyfills allows the built Xtream provider to return its fields.
+A local client patch and native iOS regression tests were prepared in the separate
+Enhanced checkout. They have not been compiled into an IPA or installed on a phone.
+The user then confirmed that downgrading Enhanced restored the menu; the exact
+old/new release numbers were not supplied.
+
+- [Failing settings initialization](https://github.com/luqmanfadlli/NuvioMobile-Enhanced/blob/111eaa807a39ee550dc1f91630535d39c8fc4ef9/composeApp/src/fullCommonMain/kotlin/com/nuvio/app/features/plugins/runtime/PluginRuntime.kt#L81)
+- [Immediate host calls](https://github.com/luqmanfadlli/NuvioMobile-Enhanced/blob/111eaa807a39ee550dc1f91630535d39c8fc4ef9/composeApp/src/fullCommonMain/kotlin/com/nuvio/app/features/plugins/runtime/js/JsBindings.kt#L4)
+- [Gear-button result gate](https://github.com/luqmanfadlli/NuvioMobile-Enhanced/blob/111eaa807a39ee550dc1f91630535d39c8fc4ef9/composeApp/src/fullCommonMain/kotlin/com/nuvio/app/features/plugins/PluginsSettingsScreen.kt#L418)
 
 Evidence:
 
@@ -136,8 +166,16 @@ The inspected Android, Desktop and modern TV runtimes cap a plugin fetch at abou
 1 MiB. The limited webOS 5 runtime uses 512 KiB. A successful HTTP status can still
 contain a truncated body; some native `json()` wrappers then return `null`.
 
-StreamNest parses text explicitly. Categories are read with bounded concurrency,
-and incomplete required categories are never silently converted to empty results.
+StreamNest parses text explicitly. Since 0.1.3 it first requests the standard
+unfiltered `get_vod_streams` or `get_series` response. A complete nonempty catalog
+below 8,388,608 characters avoids category fan-out. All existing identity, variant
+and exact-episode checks still run. Unsupported, empty, malformed, oversized or
+truncated bulk responses fall back to categories. Authentication failures and
+rate limits do not trigger category fan-out. This is a request-count improvement,
+not a persistent catalog cache or a guarantee about a server's response time.
+
+Fallback categories are read with bounded concurrency, and incomplete required
+categories are never silently converted to empty results.
 For supported servers:
 
 1. JSON API requests use form POST.

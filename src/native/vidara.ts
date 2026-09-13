@@ -1,3 +1,4 @@
+import { resolveUrl } from './url.js';
 import { ProviderError } from './errors.js';
 import { jsonResponse, objectValue } from './metadata.js';
 import { normalizeDeclaredLanguage, resolveHlsMetadata } from './hls.js';
@@ -8,7 +9,7 @@ const ORIGINS = new Set(['https://odysseusa.cc', 'https://vidaraa.cc']);
 
 export function isVidaraUrl(value: string): boolean {
   try {
-    const url = new URL(value);
+    const url = resolveUrl(value);
     return ORIGINS.has(url.origin) && /^\/e\/[A-Za-z0-9]{8,32}\/?$/.test(url.pathname)
       && !url.search && !url.hash && !url.username && !url.password;
   } catch { return false; }
@@ -17,7 +18,7 @@ export function isVidaraUrl(value: string): boolean {
 function mediaUrl(value: unknown, base?: string): string {
   if (typeof value !== 'string' || !value.trim()) throw new ProviderError('invalid_response');
   const url = httpUrl(value.trim(), base);
-  if (new URL(url).protocol !== 'https:') throw new ProviderError('invalid_response');
+  if (resolveUrl(url).protocol !== 'https:') throw new ProviderError('invalid_response');
   return url;
 }
 
@@ -50,7 +51,7 @@ export function parsePlayerApiSubtitles(value: unknown, embedUrl: string, header
 /** The observed player reads /api/stream JSON directly; telemetry crypto is unrelated. */
 export async function resolveVidara(http: HttpClient, embedUrl: string, sourcePage: string, titleHint?: string): Promise<NativeStream> {
   if (!isVidaraUrl(embedUrl)) throw new ProviderError('invalid_response');
-  const embed = new URL(embedUrl);
+  const embed = resolveUrl(embedUrl);
   const filecode = embed.pathname.split('/').filter(Boolean).pop()!;
   const endpoint = `${embed.origin}/api/stream`;
   const headers = { 'User-Agent': 'Mozilla/5.0', Referer: embed.href, Origin: embed.origin };

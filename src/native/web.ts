@@ -1,3 +1,4 @@
+import { resolveUrl } from './url.js';
 import { load } from 'cheerio/slim';
 import { ProviderError } from './errors.js';
 import { jsonResponse, normalizeTitle, objectValue, responseText, yearValue } from './metadata.js';
@@ -18,7 +19,7 @@ interface Mirror { key: string; url?: string; quality?: string; language?: strin
   provider?: 'voe' | 'vidara' | 'vixeo' | 'playmate' | 'flyfile' | 'firestream' | 'byse' }
 
 function sourceUrl(value: string, origin: string, pathPrefix: string): string {
-  const result = new URL(httpUrl(value, origin));
+  const result = resolveUrl(httpUrl(value, origin));
   if (result.origin !== origin || !result.pathname.startsWith(pathPrefix) || result.hash) throw new ProviderError('invalid_response');
   return result.href;
 }
@@ -89,7 +90,7 @@ function parseFilmpalast(html: string, url: string, identity: Identity, request:
     const provider = isVoeUrl(target) ? 'voe' : isVidaraUrl(target) ? 'vidara' : isVixeoUrl(target) ? 'vixeo'
       : isPlaymateUrl(target) ? 'playmate' : isFlyfileUrl(target) ? 'flyfile' : isFirestreamUrl(target) ? 'firestream' : null;
     if (!provider) return;
-    const address = new URL(target);
+    const address = resolveUrl(target);
     const key = `${provider}:${address.origin}${provider === 'voe' ? address.pathname.replace(/^\/e\//, '/') : address.pathname}`;
     if (seen.has(key)) return;
     seen.add(key);

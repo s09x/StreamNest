@@ -77,14 +77,14 @@ export function httpUrl(value: string, base?: string): string {
 
 export function isVoeUrl(value: string): boolean {
   try {
-    const url = new URL(value);
+    const url = resolveUrl(value);
     return /^(?:www\.)?voe\.sx$/i.test(url.hostname) && /^\/(?:e\/)?[a-z\d]{8,32}\/?$/i.test(url.pathname)
       && !url.username && !url.password && ['https:', 'http:'].includes(url.protocol);
   } catch { return false; }
 }
 
 function fileId(url: string): string | undefined {
-  const path = new URL(url).pathname;
+  const path = resolveUrl(url).pathname;
   return /^\/(?:e\/)?([a-z\d]{8,32})\/?$/i.exec(path)?.[1]?.toLowerCase();
 }
 
@@ -184,7 +184,7 @@ export async function resolveVoe(http: HttpClient, embedUrl: string, sourcePage:
     const $ = load(html);
     const filename = textValue(config.title) ?? $('title').first().text().replace(/^Watch\s+/i, '').replace(/\s+-\s+VOE\b[\s\S]*$/i, '').trim();
     const title = filename && !/https?:\/\//i.test(filename) ? filename : 'VOE';
-    const headers = { 'User-Agent': 'Mozilla/5.0', Referer: current, Origin: new URL(current).origin };
+    const headers = { 'User-Agent': 'Mozilla/5.0', Referer: current, Origin: resolveUrl(current).origin };
     const captionList = subtitles(config, current, headers);
     const quality = /\b(2160p|1080p|720p|576p|480p)\b/i.exec(title)?.[1]?.toLowerCase();
     const language = audioLanguages(config);

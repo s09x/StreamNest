@@ -12,7 +12,7 @@ function safeUrl(input: string): URL {
   try {
     const authority = /^https?:\/\/([^/?#]*)/i.exec(input)?.[1];
     if (!authority || authority.includes('@')) throw new Error();
-    const url = new URL(input);
+    const url = resolveUrl(input);
     if (!['http:', 'https:'].includes(url.protocol) || !url.hostname || url.username || url.password) throw new Error();
     return url;
   } catch { throw new ProviderError('invalid_request'); }
@@ -71,7 +71,7 @@ export function createHttpClient(fetcher: FetchImplementation = globalThis.fetch
           let receivedUrl: URL;
           try { receivedUrl = safeUrl(response.url || url); }
           catch { throw new ProviderError('invalid_response'); }
-          const followedToAnotherOrigin = receivedUrl.origin !== new URL(url).origin;
+          const followedToAnotherOrigin = receivedUrl.origin !== resolveUrl(url).origin;
           // Some Nuvio hosts ignore redirect:manual. Inspect the final origin before
           // accepting cookies or data; this cannot undo headers a host already sent.
           if (followedToAnotherOrigin && ((method === 'POST' && body !== undefined)

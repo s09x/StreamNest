@@ -1,3 +1,4 @@
+import { resolveUrl } from './url.js';
 import { ProviderError } from './errors.js';
 import type { ContentRequest, MediaType } from './types.js';
 
@@ -22,7 +23,7 @@ export function parseHost(value: unknown): string {
   const input = value.trim().replace(/\/+$/, '');
   if (!/^https?:\/\//i.test(input) || /[\s?#]/.test(input) || /^https?:\/\/[^/]*@/i.test(input)) throw new ProviderError('configuration_required');
   try {
-    const host = new URL(input);
+    const host = resolveUrl(input);
     if (!host.hostname || host.username || host.password) throw new Error();
     return host.href.replace(/\/+$/, '');
   } catch { throw new ProviderError('configuration_required'); }

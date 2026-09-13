@@ -21,10 +21,11 @@ https://raw.githubusercontent.com/s09x/StreamNest/main/manifest.json
 The compiled files in `providers/` are included in the repository. Node.js and the
 development tools are not needed to use the providers in Nuvio.
 
-Version 0.1.2 corrects relative-link resolution for Nuvio Mobile's URL bridge.
-In particular, Filmpalast search links beginning with `//filmpalast.to/` previously
-failed before the film page could load. After this version is published, refresh
-the repository and check that the installed providers show **0.1.2**.
+Version 0.1.3 corrects another Nuvio Mobile URL-bridge incompatibility: absent
+query and fragment values were exposed as `?` and `#`, causing valid Filmpalast
+and Filmo links to be rejected. It also reduces Xtream catalog requests when the
+server can return a complete list. After updating, refresh the repository and
+check that the installed providers show **0.1.3**.
 
 ## Providers
 
@@ -74,12 +75,11 @@ are compiled to ES2016 and have classes lowered for Hermes dynamic loading, whil
 remaining executable in the tested QuickJS runtime. Refresh the repository after
 an update so Nuvio downloads the corrected JavaScript files.
 
-The reported iOS gear-button failure is still unresolved on the physical device.
-The 0.1.1 and 0.1.2 settings exports both return the three fields in actual Hermes
-dynamic execution, and 0.1.2 also passes the QuickJS settings checks. These results
-do not establish that the installed app opens its dialog. If the gear still does
-nothing after updating, the exact app/provider versions and the plugin-loading
-error from that device are needed to distinguish stale code from a client failure.
+The reported gear-button failure was traced to the inspected Nuvio Enhanced client:
+its settings loader evaluates code that calls native host functions before
+registering those functions. It fails before loading Xtream. The user confirmed
+that downgrading Nuvio Enhanced restored the menu. Updating this provider cannot
+repair that client startup error; see [the source diagnosis](docs/native-compatibility.md#nuvio-enhanced-settings-regression).
 
 Nuvio controls the settings UI, local storage, and any device synchronization.
 The currently inspected Android TV/Smart TV versions do **not** provide a verified
@@ -87,12 +87,15 @@ phone-to-TV transfer of arbitrary native provider settings. Adding the repositor
 from a phone does not itself transfer Xtream credentials. This client limitation
 is not solved or hidden by this plugin. See [native compatibility](docs/native-compatibility.md).
 
-The provider queries categories directly from your server. It uses complete JSON
-responses and, where supported, smaller Enigma2 XML lists for oversized series
-categories or episode details. It does not store a private catalog in GitHub or
-depend on a separately hosted StreamNest service. Servers without a usable compact
-response, or clients with lower response limits, can still report an explicit
-incomplete-response error.
+The provider first requests the complete movie or series catalog directly from
+your server. A complete supported response avoids downloading every category
+separately: a single exact match can require just authentication, catalog and
+details. Bulk responses above 8,388,608 characters are not parsed. Unsupported,
+empty, malformed, oversized or truncated bulk responses fall back to complete
+category requests; supported Enigma2 XML lists remain available for oversized
+series responses. Large catalogs on clients with small response limits can
+therefore still be slow. No private catalog is stored in GitHub or in a separate
+StreamNest service, and no persistent cache is assumed in an isolated runtime.
 
 ## Native presentation
 
@@ -135,5 +138,11 @@ credentials in command arguments, source files, fixtures, or committed files.
 Use `--url-runtime nuvio-mobile --redirects follow` to exercise the modeled Mobile
 relative-URL behavior and automatically followed redirects. This mode does not
 emulate the entire iOS networking stack or the app's UI.
+
+`scripts/check-enhanced.mjs` additionally loads the original JavaScript bindings
+from a local Nuvio Enhanced checkout and executes them with the built provider in
+QuickJS. It adapts native calls to Node and serializes HTTP requests like the
+inspected bridge. Use `--client-root` to select the checkout. It cannot validate
+the installed app, its UI, or the iPhone's network connection.
 
 See [verification](docs/verification.md) for executed checks and their limits.

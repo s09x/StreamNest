@@ -6,7 +6,7 @@ provider/server combination works.
 
 ## Automated checks
 
-The 0.1.2 local `npm run check` on Node.js 25.6.1 passed 141 tests with zero
+The 0.1.3 local `npm run check` on Node.js 25.6.1 passed 146 tests with zero
 failures. One public network test is opt-in and remains excluded from CI; the
 separate built-provider live checks below were run explicitly. The earlier 0.1.1
 check on Node.js 24.21.0 passed 136 tests. The runtime dependency audit reports one low-severity
@@ -28,6 +28,8 @@ and runs unit and QuickJS tests. The tests cover:
   protocol-relative search link, canonical link, hoster URL and subtitle URL.
 - Relative paths, origin-root bases, protocol-relative hosts, signed queries and
   credential rejection under standard and modeled Mobile URL bindings.
+- Ktor's absent query/fragment mapping, with both web providers failing before
+  the 0.1.3 adapter correction and passing afterward.
 - QuickJS without Node's `Buffer`, `require` or `process`, including isolation from
   Nuvio's global fetch function.
 - German metadata aliases and validated TMDB/IMDb cross-references.
@@ -41,6 +43,9 @@ and runs unit and QuickJS tests. The tests cover:
 - Original upload labels versus actual HLS dimensions, codecs and languages;
   source-published sidecars and retained forced-subtitle display labels.
 - Xtream authentication, category completion, variants and detail identity checks.
+- Complete bulk movie/series lookup in three requests, variant preservation,
+  category fallback for unsupported/truncated/oversized/empty responses, and
+  immediate termination for bulk authentication or rate-limit failures.
 - Supplemental 4K variants without catalog IDs, cross-ID detail confirmation and
   preservation of verified streams when supplemental candidates are ambiguous.
 - Strict XML fallbacks, complete JSON-prefix identity properties and exact legacy
@@ -55,7 +60,36 @@ Hermes 0.11.0 compiler. The web bundles produced only a nonfatal warning about a
 guarded `window.Buffer` branch in `bn.js`; the executed QuickJS tests do not supply
 Node's Buffer. Compiler acceptance is not a physical-device playback test.
 
-## 0.1.2 iOS bug investigation on 2026-09-13
+## 0.1.3 native URL and Xtream latency corrections
+
+After the user identified Nuvio Enhanced and still reported no streams following
+a downgrade, its Ktor URL bridge was checked against Ktor 3.4.1's implementation.
+The bridge produces `?` and `#` for missing query/fragment values. Reproducing
+those exact values caused both 0.1.2 providers to return zero results after their
+search responses, with `invalid_response`; no film detail page was requested.
+The original model had incorrectly used browser-style empty strings.
+
+Both built-provider regression tests then passed after every provider URL call
+was routed through the corrected adapter. Tests also check that actual query
+values, fragments and hrefs are preserved and that the host constructor retains
+its original behavior. A 0.1.3 Filmpalast live run with the corrected native model
+returned two 720p streams in 17.0 seconds. Filmo progressed past the formerly
+failing search boundary but a run with automatically followed redirects stopped
+at its automatic-proof stage and returned `source_blocked`; no device success is
+claimed from that run. With manual redirect responses exposed, the final built
+provider returned two VOE streams in 35.2 seconds even though Byse did not resolve.
+That transport capability is not supplied by the unpatched inspected iOS client.
+
+For Xtream, a complete supported bulk response avoids category fan-out. A synthetic
+fixture with 58 categories and one exact movie requires three requests instead of
+the previous 61-request algorithm. The same three-request contract is tested for
+an exact series episode. A separate built-provider QuickJS benchmark containing
+10,000 synthetic movies (997,776 bytes of catalog JSON) returned the correct stream
+in three requests and 740 ms including runtime startup. Fixture timing is not a
+measurement of the user's account or network. Bulk fallback may remain slow on
+large catalogs or constrained clients; no real credentials were used here.
+
+## Earlier 0.1.2 iOS investigation on 2026-09-13
 
 The original Filmpalast bundle failed after the search response when executed
 with Mobile 0.4.18's relative-URL behavior. A new built-provider QuickJS regression
@@ -84,8 +118,8 @@ including protocol-relative source links.
 All three final 0.1.2 bundles were also **executed**, not only compiled, through
 `new Function` in the official Hermes 0.11.0 CLI. All loaded successfully. Xtream
 returned the three input keys without network access, as did the original 0.1.1
-bundle in the same check. The physical iOS dialog failure remains unresolved;
-these checks do not identify which provider bytes or app build that device runs.
+bundle in the same check. At that stage, the physical iOS dialog failure remained
+unresolved; the later Enhanced investigation below identified its failing client path.
 No real Xtream account was queried in this investigation. No video segments were
 downloaded, and no physical-device playback test was performed.
 
@@ -93,6 +127,51 @@ The user's working Showbox example was also inspected. That linked script has no
 `onSettings` export; the available React Native screen implements a dedicated
 Showbox token field. The evidence and its version limits are recorded in
 [native compatibility](native-compatibility.md#client-side-settings-limitation).
+
+## Nuvio Enhanced follow-up
+
+The inspected Enhanced revision is `111eaa807a39ee550dc1f91630535d39c8fc4ef9`.
+Evaluating its original `JsBindings.staticPolyfillCode` in a fresh QuickJS context
+without host registration reproduced `__get_scraper_id is not defined`, before
+any provider code ran. With the missing native functions supplied, the original
+bindings and built Xtream provider returned all three input keys without network
+requests. The user subsequently confirmed that the menu opens after downgrading
+Enhanced. The prior provider-only tests did not prove that this client startup worked.
+
+The new checker reads the client bindings directly from a checkout:
+
+```sh
+node scripts/check-enhanced.mjs --client-root ../NuvioMobile-Enhanced --provider xtream --mode settings
+node scripts/check-enhanced.mjs --client-root ../NuvioMobile-Enhanced --provider filmpalast --id 453395
+node scripts/check-enhanced.mjs --client-root ../NuvioMobile-Enhanced --provider filmo --id 453395
+node scripts/check-enhanced.mjs --client-root ../NuvioMobile-Enhanced --provider filmo --id 453395 --redirects manual
+```
+
+Unlike the earlier Node/V8 live checker, this executes the provider, original
+client polyfills and result serialization in QuickJS. Native HTTP and a limited
+set of used crypto/URL host functions are adapted to Node. HTTP requests are
+serialized to reflect Enhanced's blocking fetch bridge. This still does not
+execute Kotlin, Ktor/Darwin or the physical iPhone. Its initial absolute-URL
+adapter also omitted the Ktor bare-delimiter defect; the 0.1.3 results above use
+the corrected adapter. The following early results are retained as investigation
+history, not evidence that 0.1.2 worked through the native URL bridge:
+
+- Filmpalast returned two 720p streams through the original client bindings.
+- Filmo with automatic redirects first stopped after the Byse captcha response
+  with `source_blocked`; another run completed a difficulty-16 automatic proof
+  and returned one 720p English/German stream in 19.8 seconds. This demonstrates
+  variability, not reliable success on the user's device.
+- Filmo with manual redirect responses exposed returned three streams in 21.9
+  seconds, including VOE and Byse. The inspected iOS client ignores its
+  `followRedirects` argument; a separate local client patch now selects a Ktor
+  client with redirects disabled for that case. Its native behavior remains to
+  be verified on iOS.
+
+The client patch includes native iOS settings tests, but they have not run here.
+The Gradle wrapper could not start because Java is unavailable, and this Windows
+host cannot build or run the iOS target. No new app binary was created or deployed.
+The user confirmed that neither web provider returned results after the downgrade.
+That led to the Ktor URL investigation and provider correction described above.
 
 ## 0.1.1 built-provider live checks
 

@@ -1,3 +1,4 @@
+import { resolveUrl } from './url.js';
 import { load } from 'cheerio/slim';
 import { ProviderError } from './errors.js';
 import { resolveHlsMetadata } from './hls.js';
@@ -7,7 +8,7 @@ import type { HttpClient, NativeStream, NativeSubtitle } from './types.js';
 
 function fileId(value: string): string | undefined {
   try {
-    const url = new URL(value);
+    const url = resolveUrl(value);
     if (!['http:', 'https:'].includes(url.protocol) || !/^(?:www\.)?firestream\.(?:to|site)$/i.test(url.hostname)
       || url.port || url.username || url.password) return undefined;
     return /^\/(?:e|v)\/([A-Za-z0-9_-]{6,64})\/?$/.exec(url.pathname)?.[1];
@@ -36,7 +37,7 @@ function mediaUrl(value: unknown, base?: string): string {
   const input = shortText(value, 16_000);
   if (!input) throw new ProviderError('invalid_response');
   const result = httpUrl(input, base);
-  if (new URL(result).protocol !== 'https:') throw new ProviderError('invalid_response');
+  if (resolveUrl(result).protocol !== 'https:') throw new ProviderError('invalid_response');
   return result;
 }
 
@@ -71,7 +72,7 @@ export async function resolveFirestream(http: HttpClient, embedUrl: string, sour
     const page = await session.request(embedUrl, { headers: { Referer: referrer } });
     const html = responseText(page);
     if (fileId(page.url) !== id) throw new ProviderError('invalid_response');
-    const location = new URL(page.url);
+    const location = resolveUrl(page.url);
     if (location.protocol !== 'https:') throw new ProviderError('invalid_response');
     const $ = load(html);
     const dataNodes = $('script#video-data[type="application/json"]');
@@ -122,7 +123,7 @@ export async function resolveFirestream(http: HttpClient, embedUrl: string, sour
         const url = mediaUrl(candidate);
         if (seen.has(url)) continue;
         seen.add(url);
-        const pathname = new URL(url).pathname;
+        const pathname = resolveUrl(url).pathname;
         const isHls = /\.m3u8$/i.test(pathname);
         if (!isHls && !/\.(?:mp4|mkv|webm|m4v|ogg|mov|avi)$/i.test(pathname)) throw new ProviderError('invalid_response');
         const technical = isHls ? await resolveHlsMetadata(session, url, headers) : { details: [] };

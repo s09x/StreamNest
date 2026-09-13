@@ -181,12 +181,16 @@ test('Filmpalast resolves Doctor Strange protocol-relative links with the Nuvio 
   try {
     assert.equal(runtime.value(`new URL('//filmpalast.to/stream/example','https://filmpalast.to').href`),
       'https://filmpalast.to//filmpalast.to/stream/example', 'fixture must retain the real client defect');
+    assert.equal(runtime.value(`new URL('https://filmpalast.to/stream/example').search`), '?');
+    assert.equal(runtime.value(`new URL('https://filmpalast.to/stream/example').hash`), '#');
     const streams = fulfilled<Array<Record<string, unknown>>>(await runtime.run(`module.exports.getStreams('453395','movie',null,null)`));
     assert.equal(streams.length, 1);
     assert.equal(streams[0]?.url, media);
     assert.equal(streams[0]?.quality, '720p');
     assert.equal((streams[0]?.subtitles as Array<Record<string, unknown>>)[0]?.url, 'https://subs.example.invalid/de.vtt?fixture=a%2Bb');
     assert.equal(runtime.value('__requests.length'), 7);
+    assert.equal(runtime.value(`new URL('https://filmpalast.to/stream/example').hash`), '#',
+      'the provider must adapt URL instances without overwriting the host constructor');
   } finally { runtime.dispose(); }
 });
 
@@ -324,9 +328,8 @@ for (const mobileUrl of [false, true]) test(`actual Filmo bundle completes Byse 
 function xtreamRoutes(): FixtureRoute[] {
   const api = 'https://iptv.example.invalid:8080/player_api.php';
   return [
-    route(api, [{ category_id: '1', category_name: 'Fixture movies' }], { method: 'POST', form: { action: 'get_vod_categories' } }),
     route(api, [{ stream_id: 10, name: 'Inception (2010)', tmdb: '27205', container_extension: 'mkv' }], {
-      method: 'POST', form: { action: 'get_vod_streams', category_id: '1' },
+      method: 'POST', form: { action: 'get_vod_streams' },
     }),
     route(api, { movie_data: { stream_id: 10, container_extension: 'mkv' }, info: {
       tmdb_id: 27205, video: { width: 1920, height: 1080, codec_name: 'h264' },
@@ -345,7 +348,7 @@ test('actual Xtream bundle uses only synthetic native settings and cannot retain
     const streams = fulfilled<Array<Record<string, unknown>>>(await first.run(`module.exports.getStreams('27205','movie')`));
     assert.equal(streams.length, 1);
     assert.equal(streams[0]?.url, 'https://iptv.example.invalid:8080/movie/fixture-one/fixture-pass-one/10.mkv');
-    assert.equal(first.value('__requests.length'), 4);
+    assert.equal(first.value('__requests.length'), 3);
     assert.equal(first.value(`__requests.some(request => request.method !== 'POST')`), false);
   } finally { first.dispose(); }
   const empty = await createNativeRuntime(code, { routes: xtreamRoutes() });
@@ -376,10 +379,12 @@ test('actual Xtream bundle validates Enigma2 XML after incomplete series JSON an
     <description></description><playlist_url><![CDATA[${host}/enigma2.php?type=get_seasons&series_id=4092]]></playlist_url>
     </channel></items>`;
   const runtime = await createNativeRuntime(await bundle('xtream'), {
+    mobileUrl: true,
     settings: { host, username: 'xml-fixture-user', password: 'xml-fixture-password' },
     routes: [
       route(api, [{ category_id: '7', category_name: 'Fixture series' }], { method: 'POST', form: { action: 'get_series_categories' } }),
       route(api, '[{"series_id":', { method: 'POST', form: { action: 'get_series', category_id: '7' } }),
+      route(api, 'Unsupported bulk catalog', { status: 404, method: 'POST', form: { action: 'get_series' } }),
       route(`${host}/enigma2.php?username=xml-fixture-user&password=xml-fixture-password&type=get_series&cat_id=7`, xml),
       route(api, {
         info: { name: 'Dark', releaseDate: '2017-12-01', tmdb: '70523', imdb_id: 'tt5753856' },
@@ -401,7 +406,7 @@ test('actual Xtream bundle validates Enigma2 XML after incomplete series JSON an
     assert.equal(streams[0]?.url, `${host}/series/xml-fixture-user/xml-fixture-password/8091.mkv`);
     const calls = runtime.value('__requests') as Array<{ url: string; method: string; body: string }>;
     const providerCalls = calls.filter(call => call.url.startsWith(host));
-    assert.equal(providerCalls.length, 5);
+    assert.equal(providerCalls.length, 6);
     for (const call of providerCalls) {
       const legacy = call.url.startsWith(`${host}/enigma2.php?`);
       assert.equal(call.method, legacy ? 'GET' : 'POST');

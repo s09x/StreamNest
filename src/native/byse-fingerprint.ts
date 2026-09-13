@@ -1,3 +1,4 @@
+import { resolveUrl } from './url.js';
 import elliptic from 'elliptic';
 import type { ec as EllipticCurveTypes } from 'elliptic';
 import { hash as sha256 } from '@stablelib/sha256';
@@ -181,7 +182,7 @@ function opaque(value: unknown, maximum: number): string {
 
 function originUrl(value: string): string {
   try {
-    const url = new URL(value);
+    const url = resolveUrl(value);
     if (url.protocol !== 'https:' || !url.hostname || url.username || url.password || url.pathname !== '/' || url.search || url.hash) return invalid();
     return url.origin;
   } catch { return invalid(); }

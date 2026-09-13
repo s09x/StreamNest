@@ -25,6 +25,9 @@ interface SeriesData { info: Row; episodes?: Episode[] }
 interface LegacyChannel { title: string; playlists: string[]; streams: string[] }
 
 const CONCURRENCY = 3;
+// Clients with small fetch limits return a truncated body and use the existing
+// category fallback. Do not parse an unlimited bulk response on larger clients.
+const MAX_BULK_CATALOG_CHARS = 8 * 1024 * 1024;
 
 function credentials(settings: unknown): Credentials {
   const values = objectValue(settings);
@@ -272,7 +275,7 @@ function legacyChannels(xml: string): LegacyChannel[] {
 }
 
 function legacyEndpoint(value: string, host: string, type: string): URL {
-  const endpoint = new URL(host + '/enigma2.php');
+  const endpoint = resolveUrl(host + '/enigma2.php');
   let url: URL;
   try { url = resolveUrl(value, host + '/'); }
   catch { throw new ProviderError('invalid_response'); }
@@ -313,7 +316,7 @@ function legacySeasons(xml: string, host: string, seriesId: string): Set<number>
 }
 
 function legacyEpisodes(xml: string, host: string, parent: CatalogRow, season: number): Episode[] {
-  const root = new URL(host + '/');
+  const root = resolveUrl(host + '/');
   const prefix = root.pathname + 'series/';
   const numbers = new Set<number>();
   const result: Episode[] = [];
@@ -519,25 +522,44 @@ export function createXtreamProvider(http: HttpClient, metadata: MetadataProvide
         if (!(user.auth === 1 || user.auth === '1' || user.auth === true) || user.status.trim().toLowerCase() !== 'active') throw new ProviderError('authentication_failed');
 
         const isMovie = request.type === 'movie';
-        const categoriesValue = await api(isMovie ? 'get_vod_categories' : 'get_series_categories');
-        if (!Array.isArray(categoriesValue)) throw new ProviderError('invalid_response');
-        const categories = new Set<string>();
-        for (const value of categoriesValue) {
-          const category = objectValue(value);
-          const id = providerId(category?.category_id, true);
-          if (!category || !id || !text(category.category_name)) throw new ProviderError('invalid_response');
-          categories.add(id);
-        }
-        const perCategory = await mapLimited([...categories], async categoryId => {
-          try { return parseCatalog(await api(isMovie ? 'get_vod_streams' : 'get_series', { category_id: categoryId }), request); }
-          catch (error) {
-            if (isMovie || !(error instanceof ProviderError) || error.code !== 'response_incomplete') throw error;
-            // The legacy series endpoint requires GET on the verified provider;
-            // its POST behavior differs from the JSON player API contract.
-            return legacySeries(await enigma('get_series', { cat_id: categoryId }), config.host);
+        const catalogAction = isMovie ? 'get_vod_streams' : 'get_series';
+        const categoryCatalog = async (): Promise<CatalogRow[]> => {
+          const categoriesValue = await api(isMovie ? 'get_vod_categories' : 'get_series_categories');
+          if (!Array.isArray(categoriesValue)) throw new ProviderError('invalid_response');
+          const categories = new Set<string>();
+          for (const value of categoriesValue) {
+            const category = objectValue(value);
+            const id = providerId(category?.category_id, true);
+            if (!category || !id || !text(category.category_name)) throw new ProviderError('invalid_response');
+            categories.add(id);
           }
-        });
-        const rows = uniqueRows(perCategory);
+          const perCategory = await mapLimited([...categories], async categoryId => {
+            try { return parseCatalog(await api(catalogAction, { category_id: categoryId }), request); }
+            catch (error) {
+              if (isMovie || !(error instanceof ProviderError) || error.code !== 'response_incomplete') throw error;
+              return legacySeries(await enigma('get_series', { cat_id: categoryId }), config.host);
+            }
+          });
+          return uniqueRows(perCategory);
+        };
+        // Xtream supports omitting category_id to retrieve the complete VOD or
+        // series list. One complete response avoids dozens of serialized native
+        // fetches per lookup, while preserving all variants and identity checks.
+        const bulk = await requestMetadata('/player_api.php', { action: catalogAction }, 'application/json');
+        if ([401, 403].includes(bulk.status)) throw new ProviderError('authentication_failed');
+        let bulkRows: CatalogRow[] | undefined;
+        if (bulk.status >= 200 && bulk.status < 300 && bulk.text.length <= MAX_BULK_CATALOG_CHARS) {
+          try { bulkRows = uniqueRows([parseCatalog(jsonResponse(bulk), request)]); }
+          catch (error) {
+            if (!(error instanceof ProviderError) || !['invalid_response', 'response_incomplete'].includes(error.code)) throw error;
+          }
+        } else if (!(bulk.status >= 200 && bulk.status < 300)
+          && ![400, 404, 405, 413, 500, 501, 502, 503, 504].includes(bulk.status)) {
+          throw new ProviderError('request_failed');
+        }
+        // Some servers reject the unfiltered call or return [] for it. Confirm
+        // emptiness through categories; never use a truncated bulk prefix.
+        const rows = bulkRows?.length ? bulkRows : await categoryCatalog();
         let matches = exactMatches(rows, expected);
         let verifiedIds = expected;
         let identity: Identity | null = localIdentity(matches, normalized);

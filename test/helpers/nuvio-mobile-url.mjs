@@ -1,6 +1,8 @@
 // Model the URL bindings in Nuvio Mobile 0.4.18, JsBindings.kt at
 // 13cd02040a6e9b8bc3b5a51c4925fb0603597955. Only absolute parsing is native;
 // relative resolution uses string concatenation, and href keeps that string.
+// Ktor's encodedQuery/encodedFragment are non-null empty strings when absent;
+// UrlBridge nevertheless prefixes them, producing bare '?' and '#' properties.
 // This intentionally preserves the client's bugs instead of fixing the fixture.
 export const mobileUrlBindings = `
 (function () {
@@ -24,8 +26,8 @@ export const mobileUrlBindings = `
     this.hostname = parsed.hostname;
     this.port = parsed.port;
     this.pathname = parsed.pathname;
-    this.search = parsed.search;
-    this.hash = parsed.hash;
+    this.search = parsed.search || '?';
+    this.hash = parsed.hash || '#';
     this.origin = parsed.protocol + '//' + parsed.host;
     this.searchParams = new Params(parsed.search || '');
   };
