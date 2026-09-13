@@ -6,7 +6,7 @@
   "scrapers": [
     {
       "id": "streamnest-filmpalast",
-      "name": "StreamNest | Filmpalast",
+      "name": "Filmpalast",
       "version": "0.1.3",
       "filename": "providers/filmpalast.js",
       "supportedTypes": [
@@ -20,7 +20,7 @@
     },
     {
       "id": "streamnest-filmo",
-      "name": "StreamNest | Filmo",
+      "name": "Filmo",
       "version": "0.1.3",
       "filename": "providers/filmo.js",
       "supportedTypes": [
@@ -33,7 +33,7 @@
     },
     {
       "id": "streamnest-xtream",
-      "name": "StreamNest | Xtream VOD",
+      "name": "Xtream VOD",
       "version": "0.1.3",
       "filename": "providers/xtream.js",
       "supportedTypes": [

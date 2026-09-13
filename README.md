@@ -31,9 +31,9 @@ check that the installed providers show **0.1.3**.
 
 | Provider | Content | Configuration |
 | --- | --- | --- |
-| StreamNest \| Filmpalast | Movies and series episodes | None |
-| StreamNest \| Filmo | Movies through VOE and Byse | None |
-| StreamNest \| Xtream VOD | Movies and series from your account | Host, username, password in native provider settings |
+| Filmpalast | Movies and series episodes | None |
+| Filmo | Movies through VOE and Byse | None |
+| Xtream VOD | Movies and series from your account | Host, username, password in native provider settings |
 
 Filmpalast supports the six hoster families observed in the inspected movie and
 episode pages: **VOE, VIDARA, Vixeo, FireStream, FlyFile and Playmate**. Mirrors are
@@ -65,7 +65,7 @@ HDFilme, plus the additional sources considered.
 
 ## Xtream setup
 
-Open the settings for **StreamNest | Xtream VOD** in a Nuvio client that exposes
+Open the settings for **Xtream VOD** in a Nuvio client that exposes
 native provider settings. Enter your full server URL (including the port when
 needed), username, and password. These values are read from Nuvio's
 `SCRAPER_SETTINGS`; they are never added to the public JavaScript files.

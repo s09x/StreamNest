@@ -9,9 +9,9 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const pkg = JSON.parse(await readFile(resolve(root, 'package.json'), 'utf8'));
 const prelude = await readFile(resolve(root, 'src/native/polyfills.js'), 'utf8');
 const definitions = [
-  { id: 'streamnest-filmpalast', name: 'StreamNest | Filmpalast', entry: 'filmpalast', types: ['movie', 'tv'], hasSettings: false },
-  { id: 'streamnest-filmo', name: 'StreamNest | Filmo', entry: 'filmo', types: ['movie'], hasSettings: false },
-  { id: 'streamnest-xtream', name: 'StreamNest | Xtream VOD', entry: 'xtream', types: ['movie', 'tv'], hasSettings: true },
+  { id: 'streamnest-filmpalast', name: 'Filmpalast', entry: 'filmpalast', types: ['movie', 'tv'], hasSettings: false },
+  { id: 'streamnest-filmo', name: 'Filmo', entry: 'filmo', types: ['movie'], hasSettings: false },
+  { id: 'streamnest-xtream', name: 'Xtream VOD', entry: 'xtream', types: ['movie', 'tv'], hasSettings: true },
 ];
 const bundledPackages = new Set();
 const artifacts = [];
