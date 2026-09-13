@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { createContext, Script } from 'node:vm';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { mobileUrlBindings } from '../test/helpers/nuvio-mobile-url.mjs';
 
 // Explicit opt-in live checker. Credentials enter through stdin, never argv or files.
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -11,10 +12,12 @@ const values = Object.fromEntries(process.argv.slice(2).reduce((pairs, value, in
 }, []));
 const provider = values.provider;
 if (!['filmpalast', 'filmo', 'xtream'].includes(provider) || !values.id || !values.type) {
-  throw new Error('Use --provider, --id and --type; optional --season, --episode, --limit and --redirects.');
+  throw new Error('Use --provider, --id and --type; optional --season, --episode, --limit, --redirects and --url-runtime.');
 }
 const redirects = values.redirects ?? 'manual';
 if (!['manual', 'follow'].includes(redirects)) throw new Error('Invalid native redirect mode.');
+const urlRuntime = values['url-runtime'] ?? 'standard';
+if (!['standard', 'nuvio-mobile'].includes(urlRuntime)) throw new Error('Invalid URL runtime.');
 let settings;
 if (provider === 'xtream') {
   let input = '';
@@ -49,12 +52,13 @@ const context = createContext({
   },
 });
 const code = await readFile(resolve(root, `providers/${provider}.js`), 'utf8');
+if (urlRuntime === 'nuvio-mobile') new Script(mobileUrlBindings).runInContext(context);
 new Script(code, { filename: 'native-provider.js' }).runInContext(context, { timeout: 2000 });
 const start = Date.now();
 try {
   const streams = await context.module.exports.getStreams(values.id, values.type,
     values.season === undefined ? undefined : Number(values.season), values.episode === undefined ? undefined : Number(values.episode));
-  console.log(JSON.stringify({ ok: true, provider, redirects, elapsedMs: Date.now() - start, stats,
+  console.log(JSON.stringify({ ok: true, provider, redirects, urlRuntime, elapsedMs: Date.now() - start, stats,
     streams: streams.map(stream => ({ name: stream.name, quality: stream.quality, language: stream.language, subtitleCount: stream.subtitles?.length ?? 0 })) }));
 } catch (error) {
   console.log(JSON.stringify({ ok: false, provider, error: typeof error.code === 'string' ? error.code : 'request_failed',

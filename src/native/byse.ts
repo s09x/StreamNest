@@ -3,6 +3,7 @@ import { GCM } from '@stablelib/gcm';
 import { createByseFingerprint, type ByseFingerprint } from './byse-fingerprint.js';
 import { ProviderError } from './errors.js';
 import { resolveHlsMetadata } from './hls.js';
+import { resolveUrl } from './url.js';
 import type { HttpClient, NativeStream, NativeSubtitle, RequestOptions } from './types.js';
 
 const USER_AGENT = 'Mozilla/5.0';
@@ -34,7 +35,7 @@ function urlValue(value: unknown, base?: string): URL {
   const authority = /^(?:https?:)?\/\/([^/?#]*)/i.exec(input)?.[1];
   if (authority && (authority.includes('@') || /%40/i.test(authority))) return invalid();
   try {
-    const url = new URL(input, base);
+    const url = resolveUrl(input, base);
     if (!['http:', 'https:'].includes(url.protocol) || !url.hostname || url.username || url.password) return invalid();
     return url;
   } catch { return invalid(); }

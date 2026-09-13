@@ -1,6 +1,6 @@
 {
   "name": "streamnest-nuvio-plugins",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "type": "module",
   "description": "Native Nuvio JavaScript providers for German movies, series, and Xtream VOD.",
@@ -19,7 +19,8 @@
     "@stablelib/sha256": "2.0.1",
     "cheerio": "1.2.0",
     "elliptic": "6.6.1",
-    "fast-xml-parser": "5.11.1"
+    "fast-xml-parser": "5.11.1",
+    "url-toolkit": "2.2.5"
   },
   "devDependencies": {
     "@babel/core": "7.29.7",

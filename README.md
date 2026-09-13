@@ -21,6 +21,11 @@ https://raw.githubusercontent.com/s09x/StreamNest/main/manifest.json
 The compiled files in `providers/` are included in the repository. Node.js and the
 development tools are not needed to use the providers in Nuvio.
 
+Version 0.1.2 corrects relative-link resolution for Nuvio Mobile's URL bridge.
+In particular, Filmpalast search links beginning with `//filmpalast.to/` previously
+failed before the film page could load. After this version is published, refresh
+the repository and check that the installed providers show **0.1.2**.
+
 ## Providers
 
 | Provider | Content | Configuration |
@@ -66,8 +71,15 @@ needed), username, and password. These values are read from Nuvio's
 
 The settings export returns the three input fields synchronously. Provider bundles
 are compiled to ES2016 and have classes lowered for Hermes dynamic loading, while
-remaining executable in the tested QuickJS runtime. When updating from 0.1.0,
-refresh the repository in Nuvio so it downloads the corrected JavaScript files.
+remaining executable in the tested QuickJS runtime. Refresh the repository after
+an update so Nuvio downloads the corrected JavaScript files.
+
+The reported iOS gear-button failure is still unresolved on the physical device.
+The 0.1.1 and 0.1.2 settings exports both return the three fields in actual Hermes
+dynamic execution, and 0.1.2 also passes the QuickJS settings checks. These results
+do not establish that the installed app opens its dialog. If the gear still does
+nothing after updating, the exact app/provider versions and the plugin-loading
+error from that device are needed to distinguish stale code from a client failure.
 
 Nuvio controls the settings UI, local storage, and any device synchronization.
 The currently inspected Android TV/Smart TV versions do **not** provide a verified
@@ -120,5 +132,8 @@ Live checks are explicit opt-in operations. `scripts/check-native.mjs` runs an
 actual built provider with a configurable native response limit. Xtream settings
 enter that checker only through private standard input; do not place real
 credentials in command arguments, source files, fixtures, or committed files.
+Use `--url-runtime nuvio-mobile --redirects follow` to exercise the modeled Mobile
+relative-URL behavior and automatically followed redirects. This mode does not
+emulate the entire iOS networking stack or the app's UI.
 
 See [verification](docs/verification.md) for executed checks and their limits.

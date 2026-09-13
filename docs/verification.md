@@ -6,9 +6,10 @@ provider/server combination works.
 
 ## Automated checks
 
-The 0.1.1 local check on Node.js 24.21.0 passed 136 tests. One public network test
-is opt-in and remains excluded from CI. The 0.1.1 direct built-provider live checks
-are recorded below. The runtime dependency audit reports one low-severity
+The 0.1.2 local `npm run check` on Node.js 25.6.1 passed 141 tests with zero
+failures. One public network test is opt-in and remains excluded from CI; the
+separate built-provider live checks below were run explicitly. The earlier 0.1.1
+check on Node.js 24.21.0 passed 136 tests. The runtime dependency audit reports one low-severity
 `elliptic` advisory with no patched release; its narrowly scoped use and remaining
 limitation are documented in [hoster verification](hosters.md).
 
@@ -23,6 +24,10 @@ and runs unit and QuickJS tests. The tests cover:
 - ES2016 syntax and lowered classes for Hermes dynamic loading; the existing
   published bundle's compiler failure was reproduced before the build fix.
 - Synchronous Xtream input fields for `host`, `username` and `password`.
+- Mobile-style relative URL resolution, including the actual Doctor Strange 2
+  protocol-relative search link, canonical link, hoster URL and subtitle URL.
+- Relative paths, origin-root bases, protocol-relative hosts, signed queries and
+  credential rejection under standard and modeled Mobile URL bindings.
 - QuickJS without Node's `Buffer`, `require` or `process`, including isolation from
   Nuvio's global fetch function.
 - German metadata aliases and validated TMDB/IMDb cross-references.
@@ -49,6 +54,45 @@ All three final 0.1.1 JavaScript files also compiled successfully with the actua
 Hermes 0.11.0 compiler. The web bundles produced only a nonfatal warning about a
 guarded `window.Buffer` branch in `bn.js`; the executed QuickJS tests do not supply
 Node's Buffer. Compiler acceptance is not a physical-device playback test.
+
+## 0.1.2 iOS bug investigation on 2026-09-13
+
+The original Filmpalast bundle failed after the search response when executed
+with Mobile 0.4.18's relative-URL behavior. A new built-provider QuickJS regression
+failed before the fix and passed after it. The small, dependency-free URL resolver
+package is bundled so relative resolution does not depend on that native behavior.
+
+The final providers were checked with a 1 MiB response cap, automatic redirects,
+secure randomness and the modeled Mobile URL binding:
+
+```sh
+node scripts/check-native.mjs --provider filmpalast --id 453395 --type movie --redirects follow --url-runtime nuvio-mobile
+node scripts/check-native.mjs --provider filmo --id 453395 --type movie --redirects follow --url-runtime nuvio-mobile
+```
+
+| Doctor Strange in the Multiverse of Madness, TMDB 453395 | Observed 0.1.2 result |
+| --- | --- |
+| Filmpalast | Two streams, VIDARA and FlyFile, both 720p and each with two external subtitles; 11 requests, 8.7 seconds; maximum response 314,800 bytes |
+| Filmo | One Byse stream, 720p with English/German audio; 22 requests, 10.2 seconds; maximum response 700,871 bytes |
+
+Neither final run truncated a response. Initial 0.1.1 live requests failed at the
+hoster/network stage, but subsequent 0.1.1 diagnostics also returned both providers'
+streams with standard URL APIs. Therefore a persistent independent Filmo failure
+has not been established. Its full Byse fixture now runs under both URL bindings,
+including protocol-relative source links.
+
+All three final 0.1.2 bundles were also **executed**, not only compiled, through
+`new Function` in the official Hermes 0.11.0 CLI. All loaded successfully. Xtream
+returned the three input keys without network access, as did the original 0.1.1
+bundle in the same check. The physical iOS dialog failure remains unresolved;
+these checks do not identify which provider bytes or app build that device runs.
+No real Xtream account was queried in this investigation. No video segments were
+downloaded, and no physical-device playback test was performed.
+
+The user's working Showbox example was also inspected. That linked script has no
+`onSettings` export; the available React Native screen implements a dedicated
+Showbox token field. The evidence and its version limits are recorded in
+[native compatibility](native-compatibility.md#client-side-settings-limitation).
 
 ## 0.1.1 built-provider live checks
 

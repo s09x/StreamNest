@@ -1,5 +1,6 @@
 import { load } from 'cheerio/slim';
 import { ProviderError } from './errors.js';
+import { resolveUrl } from './url.js';
 import type { ContentRequest, HttpClient, Identity, MediaType, MetadataProvider, TextResponse } from './types.js';
 
 const CINEMETA = 'https://v3-cinemeta.strem.io';
@@ -82,7 +83,7 @@ export function createMetadataProvider(http: HttpClient): MetadataProvider {
     const $ = load(responseText(response));
     const canonical = $('link[rel="canonical"]').attr('href');
     let canonicalUrl: URL;
-    try { canonicalUrl = new URL(canonical ?? '', response.url); }
+    try { canonicalUrl = resolveUrl(canonical ?? '', response.url); }
     catch { throw new ProviderError('invalid_response'); }
     if (!canonical || !/^(?:www\.)?themoviedb\.org$/i.test(canonicalUrl.hostname)
       || !(new RegExp(`^/${type}/${id}(?:-|$)`)).test(canonicalUrl.pathname)) {

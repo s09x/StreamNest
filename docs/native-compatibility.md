@@ -61,6 +61,25 @@ The providers read Nuvio's `fetch`, URL APIs, and `SCRAPER_SETTINGS`. Parser and
 decoder dependencies are bundled. They do not use Node filesystem/network APIs,
 `Buffer`, a separate backend, or a supposedly persistent JavaScript catalog cache.
 
+### Relative URL resolution
+
+Mobile 0.4.18's URL bridge concatenates relative references instead of applying
+complete URL resolution. For example, `//filmpalast.to/stream/example` against
+`https://filmpalast.to` becomes
+`https://filmpalast.to//filmpalast.to/stream/example`. This breaks Filmpalast's real
+search links and was reproduced with the built 0.1.1 provider.
+
+Since 0.1.2, StreamNest resolves references with bundled `url-toolkit` 2.2.5 before
+passing an absolute address to the native URL bridge. The same boundary handles
+source pages, hoster links, subtitles and observed redirects. Origin and credential
+checks still apply. The host's URL implementation is not overwritten.
+
+The regression fixture intentionally retains the Mobile relative-resolution bug;
+it uses host-backed absolute parsing and does not reproduce every Ktor or
+URLSearchParams detail. Earlier tests used standard URL APIs and missed this bug.
+
+- [Mobile URL bindings](https://github.com/NuvioMedia/NuvioMobile/blob/13cd02040a6e9b8bc3b5a51c4925fb0603597955/composeApp/src/fullCommonMain/kotlin/com/nuvio/app/features/plugins/runtime/js/JsBindings.kt)
+
 ## Client-side settings limitation
 
 Inspected source versions include Mobile 0.4.18, Desktop 0.1.23-alpha, Android TV
@@ -83,6 +102,25 @@ These are explicit client limitations, not capabilities implemented by additiona
 unknown manifest properties. Host/password synchronization across those clients
 would require a Nuvio-side feature. No client modification or substitute transport
 has been made by this repository.
+
+The separately reported iOS gear-button failure has not been reproduced in the
+provider entry point: both the 0.1.1 and 0.1.2 bundles return `host`, `username` and
+`password` during actual Hermes 0.11.0 dynamic execution; 0.1.2 also passes QuickJS
+settings tests with standard and modeled Mobile URL bindings. Mobile's inspected
+screen opens the dialog only when its settings-layout call returns non-null.
+Determining why that call fails on the user's device still requires its exact
+installed app/provider versions or a device plugin-loading error. The URL fix is
+not evidence that this UI report is resolved.
+
+The user-supplied [Showbox provider](https://raw.githubusercontent.com/yoruix/nuvio-providers/refs/heads/multi-file-providers/providers/showbox.js)
+is a different configuration path: the inspected file exports only `getStreams`,
+contains no `onSettings`, and its manifest entry does not declare `hasSettings`.
+The available [React Native settings screen](https://github.com/NuvioMedia/NuvioMobile/blob/cbc9fc4fa6508446b522ee62808983ab6dcb2c31/src/screens/PluginsScreen.tsx)
+detects Showbox by its name, ID or filename and implements its token input directly
+in the app. A working Showbox cookie input therefore does not by itself establish
+generic provider-settings support. This source comparison does not identify the
+exact installed iOS build, and StreamNest does not impersonate Showbox to trigger
+that dedicated UI.
 
 Evidence:
 

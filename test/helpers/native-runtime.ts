@@ -1,4 +1,5 @@
 import { getQuickJS, shouldInterruptAfterDeadline } from 'quickjs-emscripten';
+import { mobileUrlBindings } from './nuvio-mobile-url.mjs';
 
 export interface FixtureRoute {
   url: string;
@@ -9,7 +10,7 @@ export interface FixtureRoute {
   body: string;
   finalUrl?: string;
 }
-export interface FixtureOptions { settings?: unknown; routes?: FixtureRoute[]; provideAtob?: boolean; provideCryptoRandom?: boolean }
+export interface FixtureOptions { settings?: unknown; routes?: FixtureRoute[]; provideAtob?: boolean; provideCryptoRandom?: boolean; mobileUrl?: boolean }
 export type GuestResult = { ok: true; value: unknown } | { ok: false; error: { name: string; message: string; code?: string } };
 
 /** Standard URL APIs are host-backed; fetch and all source responses remain inside the guest. */
@@ -153,6 +154,7 @@ export async function createNativeRuntime(bundle: string, options: FixtureOption
       globalThis.__savedHostFetch = globalThis.fetch;
       globalThis.__originalHostFetch = globalThis.fetch;
     `);
+    if (options.mobileUrl) evaluate(mobileUrlBindings);
     evaluate(bundle);
   } catch (error) { vm.dispose(); throw error; }
 

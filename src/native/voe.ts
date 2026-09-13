@@ -1,6 +1,7 @@
 import { load } from 'cheerio/slim';
 import { ProviderError } from './errors.js';
 import { objectValue, responseText } from './metadata.js';
+import { resolveUrl } from './url.js';
 import type { HttpClient, NativeStream, NativeSubtitle, TextResponse } from './types.js';
 
 const BASE64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
@@ -67,7 +68,7 @@ export function extractVoeConfig(html: string): Record<string, unknown> | null {
 
 export function httpUrl(value: string, base?: string): string {
   try {
-    const url = new URL(value, base);
+    const url = resolveUrl(value, base);
     if (!['http:', 'https:'].includes(url.protocol) || !url.hostname || url.username || url.password
       || value.length > 16_000 || /[\r\n]/.test(value)) throw new Error();
     return url.href;

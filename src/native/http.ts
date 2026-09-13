@@ -1,4 +1,5 @@
 import { ProviderError } from './errors.js';
+import { resolveUrl } from './url.js';
 import type { HttpClient, RequestOptions, TextResponse } from './types.js';
 
 export type FetchImplementation = (url: string, options?: RequestOptions) => Promise<{
@@ -85,7 +86,9 @@ export function createHttpClient(fetcher: FetchImplementation = globalThis.fetch
           if (withCookies) storeCookies(receivedUrl.href, get('set-cookie'));
           const location = get('location');
           if (options.redirect !== 'manual' && location && [301, 302, 303, 307, 308].includes(response.status)) {
-            const target = safeUrl(new URL(location, receivedUrl).href);
+            let target: URL;
+            try { target = safeUrl(resolveUrl(location, receivedUrl.href).href); }
+            catch { throw new ProviderError('invalid_response'); }
             if (target.origin !== receivedUrl.origin || followedToAnotherOrigin) {
               if (method === 'POST' && [307, 308].includes(response.status)) throw new ProviderError('request_failed');
               const clean: Record<string, string> = {};

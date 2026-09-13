@@ -5,6 +5,7 @@ import { isChallenge } from './http.js';
 import { readCompleteJsonProperty } from './json-prefix.js';
 import { jsonResponse, normalizeTitle, objectValue, responseText, yearValue } from './metadata.js';
 import { parseHost, parseRequest } from './request.js';
+import { resolveUrl } from './url.js';
 import type { ContentRequest, HttpClient, Identity, MetadataProvider, NativeStream, NativeSubtitle, RequestOptions, SettingsField, TextResponse } from './types.js';
 
 type Row = Record<string, unknown>;
@@ -273,7 +274,7 @@ function legacyChannels(xml: string): LegacyChannel[] {
 function legacyEndpoint(value: string, host: string, type: string): URL {
   const endpoint = new URL(host + '/enigma2.php');
   let url: URL;
-  try { url = new URL(value, host + '/'); }
+  try { url = resolveUrl(value, host + '/'); }
   catch { throw new ProviderError('invalid_response'); }
   if (url.origin !== endpoint.origin || url.pathname !== endpoint.pathname || url.username || url.password
     || url.hash || url.searchParams.getAll('type').length !== 1 || url.searchParams.get('type') !== type) throw new ProviderError('invalid_response');
@@ -321,7 +322,7 @@ function legacyEpisodes(xml: string, host: string, parent: CatalogRow, season: n
     const episode = number ? integer(number[1]) : undefined;
     if (episode === undefined || channel.streams.length !== 1) throw new ProviderError('invalid_response');
     let url: URL;
-    try { url = new URL(channel.streams[0]!, host + '/'); }
+    try { url = resolveUrl(channel.streams[0]!, host + '/'); }
     catch { throw new ProviderError('invalid_response'); }
     if (url.origin !== root.origin || url.username || url.password || url.hash || url.search
       || !url.pathname.startsWith(prefix)) throw new ProviderError('invalid_response');
@@ -378,7 +379,7 @@ function sourceUrl(value: unknown, host: string): string | undefined {
   if (typeof value !== 'string' || !value.trim()) return undefined;
   try {
     if (/[^\S ]|[\r\n\0]/.test(value)) return undefined;
-    const url = new URL(value, host + '/');
+    const url = resolveUrl(value, host + '/');
     if (!['http:', 'https:'].includes(url.protocol) || !url.hostname || url.username || url.password) return undefined;
     return url.href;
   } catch { return undefined; }
