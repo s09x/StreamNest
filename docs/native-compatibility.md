@@ -2,8 +2,9 @@
 
 StreamNest installs as a native repository: root `manifest.json`, `scrapers`, and
 the referenced JavaScript files. Every stream lookup runs on the Nuvio device.
-Public TMDB and Cinemeta endpoints supply title, year, and identity metadata to
-the JavaScript providers. GitHub supplies the manifest and provider bundles.
+Public TMDB and Cinemeta endpoints supply title, year, and identity metadata when
+a provider needs that mapping. einschalten can address a numeric TMDB movie
+directly. GitHub supplies the manifest and provider bundles.
 
 ## Build and platform prerequisites
 
@@ -43,6 +44,84 @@ prerequisites are satisfied.
 - [Mobile iOS App Store plugin stub: PluginRepository.ios.kt](https://github.com/NuvioMedia/NuvioMobile/blob/13cd02040a6e9b8bc3b5a51c4925fb0603597955/composeApp/src/iosAppStore/kotlin/com/nuvio/app/features/plugins/PluginRepository.ios.kt#L11)
 - [Android TV Play Store plugin stub: PluginManager.kt](https://github.com/NuvioMedia/NuvioTV/blob/e54a74904b7ee40e5c748e156a70749f89e8decf/app/src/playstore/java/com/nuvio/tv/core/plugin/PluginManager.kt#L12)
 - [Smart TV versions and packaged services: README.md](https://github.com/NuvioMedia/NuvioTVSmart/blob/f3f8bcc3674a12366a416f9af5f5dcba8df85c35/README.md#L20)
+
+## einschalten
+
+The einschalten adapter supports movies through its public JSON API and
+DoodStream. A TMDB request normally needs four native fetch calls: movie details,
+the watch response, the redirected embed page, and its published `pass_md5`
+request. IMDb requests first use the existing metadata mapping; a bounded title
+search is available when that mapping has no TMDB ID, and the source detail must
+confirm the exact IMDb ID before playback.
+
+The native transport must support HTTP/2 for DoodStream. In the controlled
+comparison, HTTP/1.1 with a complete User-Agent and HTTP/2 with the abbreviated
+`Mozilla/5.0` value both received Cloudflare 403 responses. HTTP/2 with the
+inspected native bridge's complete default reached the player and media route.
+The provider explicitly supplies that complete value to DoodStream and returns
+it, together with the final embed Referer, in the stream's playback headers.
+
+Enhanced 0.4.14's iOS fetch bridge uses Ktor's Darwin/NSURLSession transport. The
+inspected Android implementation uses OkHttp. Both engines support HTTP/2;
+the HTTP version is negotiated by the native client and cannot be selected by a
+JavaScript provider option. The existing native clients therefore remain the
+networking boundary. The checker's `--transport http2` option only selects a
+Node diagnostic adapter, not a new client capability.
+
+The HTTP/2-capable diagnostic adapter falls back to HTTP/1.1 only when the TLS
+endpoint does not offer HTTP/2. The inspected Cinemeta endpoint needs that
+fallback for IMDb metadata; the DoodStream requests still negotiate HTTP/2.
+A challenge response does not trigger protocol switching or a browser solver.
+
+- [Ktor engine support](https://ktor.io/docs/client-engines.html)
+- [Enhanced 0.4.14 iOS HTTP implementation](https://github.com/luqmanfadlli/NuvioMobile-Enhanced/blob/0.4.14/composeApp/src/iosMain/kotlin/com/nuvio/app/features/addons/AddonPlatform.ios.kt)
+
+Movie and hoster lookups use ordinary GET requests; the bounded title fallback
+uses JSON POST searches. The provider works with followed redirects and reads
+the public player assignment without executing hoster scripts. It needs
+no browser session, external resolver service, or cryptographic host extension.
+Actual challenges, changed file identities, malformed responses and exhausted
+retry bounds remain errors. A client constrained to HTTP/1.1 does not meet this
+source's verified transport requirement. Physical-device verification is still
+separate from the QuickJS and host-adapted checks documented in
+[einschalten verification](verification.md#einschalten-integration).
+
+## HDFilme
+
+The HDFilme adapter is declared for movies and uses the public IMDb-addressed
+player embedded by `hdfilme.cafe`. Numeric TMDB requests require the existing
+verified TMDB/IMDb metadata mapping. Its anonymous GET requests work with
+automatically followed redirects and do not depend on Filmo's cookie handoff
+or Byse's crypto protocol.
+
+The built adapter passed a 512 KiB response-limit check with modeled Mobile URL
+behavior and an execution through Enhanced 0.4.14's original JavaScript bindings.
+QuickJS fixtures also cover a 256 KiB stack, deeply nested page markup, and both
+the native `atob` API and the bundled fallback. These checks establish provider
+execution and stream discovery; physical-device playback remains untested.
+The sampled series hoster requires interaction, so series support is not declared.
+See [HDFilme verification](verification.md#hdfilme-cafe-integration).
+
+## MegaKino
+
+MegaKino provides movies and exact series episodes through anonymous form POST
+searches and the existing VOE/FireStream resolvers. Automatically followed HTTP
+redirects are supported. Its source lookup requires no account settings,
+interactive browser, or secure-randomness API. Unsupported hosters are skipped.
+
+Movie and S02E01 fixtures execute the generated bundle with a 256 KiB QuickJS
+stack, 512 nested DOM elements, standard and modeled Mobile URLs, and no
+`String.prototype.matchAll`. DOM text extraction is iterative. A QuickJS
+compiler failure was reproduced when an awaited search appeared directly in a
+`for-of` expression after ES2016 lowering; materializing the search result
+before iteration fixes the load failure without changing the client runtime.
+
+The original Enhanced 0.4.14 JavaScript bindings also resolved a live movie and
+an exact episode. The modeled Mobile movie check used a 1 MiB response limit
+without truncation. The Enhanced checker accepts `--season` and `--episode`
+for both legacy and current client bindings. These checks establish provider
+execution and stream discovery; physical-device playback remains untested.
+See [MegaKino verification](verification.md#megakino-integration).
 
 ## Native contract
 

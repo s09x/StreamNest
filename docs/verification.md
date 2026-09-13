@@ -6,6 +6,23 @@ provider/server combination works.
 
 ## Automated checks
 
+The final 0.1.7 `npm run check` on Node.js 24.19.0 passed **219 tests** with zero
+failures. The existing opt-in public network test remained skipped; the separate
+einschalten live checks below ran explicitly against the generated provider.
+The manifest, all six provider bundles and runtime notices were rebuilt.
+
+Initial Node.js 25.6.1 runs encountered native allocation failures on this
+memory-constrained Windows host, including in existing QuickJS test files and
+the build process. The complete successful LTS run used process-local V8 bounds
+of 384 MiB old space and 8 MiB semi-space. The test command now limits file-level
+parallelism to two; all test cases and their internal concurrency assertions
+remain enabled. The temporary environment overrides were restored afterward.
+
+The 0.1.6 local `npm run check` on Node.js 25.6.1 passed 184 tests with zero
+failures, including 22 MegaKino and 13 HDFilme unit and built-provider cases.
+One public network test remained skipped by its existing opt-in gate.
+The separate MegaKino and HDFilme live checks below were run explicitly.
+
 The 0.1.4 local `npm run check` on Node.js 25.6.1 passed 149 tests with zero
 failures. One public network test is opt-in and remains excluded from CI; the
 separate built-provider live checks below were run explicitly. The earlier 0.1.1
@@ -52,6 +69,14 @@ and runs unit and QuickJS tests. The tests cover:
   season/episode selection.
 - Iterative DOM text extraction, including decoded Unicode, comments, CDATA,
   script/style text and deeply nested markup in a 256 KiB QuickJS stack.
+- einschalten's direct TMDB lookup, source-confirmed IMDb mapping, complete bounded
+  search fallback, and DoodStream's same-file redirect and fresh URL construction.
+- The complete DoodStream User-Agent on hoster requests and exported playback
+  headers; bounded `RELOAD` recovery, malformed player data and challenge handling.
+- Real loopback TLS/HTTP/2 requests, HTTP/1.1 negotiation fallback, redirect header
+  isolation, POST conversion, timeouts, compression and decoded response limits.
+- Bounded MP4 checks that verify the file header and exact requested byte ranges,
+  including rejection of ignored Range requests, incorrect offsets and HTML.
 
 The public live test in `test/web.test.ts` is opt-in and excluded from ordinary CI.
 It was run separately during 0.1.0 development. Fixtures and CI contain no real accounts
@@ -61,6 +86,162 @@ All three final 0.1.1 JavaScript files also compiled successfully with the actua
 Hermes 0.11.0 compiler. The web bundles produced only a nonfatal warning about a
 guarded `window.Buffer` branch in `bn.js`; the executed QuickJS tests do not supply
 Node's Buffer. Compiler acceptance is not a physical-device playback test.
+
+## einschalten integration
+
+The source was inspected on 2026-09-13. Its public frontend requests movie
+details at `https://einschalten.in/api/movies/<TMDB ID>` and playback information
+at the corresponding `/watch` path. The latter returns a DoodStream embed URL
+and the upload release name. The inspected `vide0.net` links redirect to
+`playmogo.com` while retaining the public file ID.
+
+The initial HTTP/1.1 inspection received a Cloudflare challenge. A controlled
+comparison identified both transport and User-Agent as relevant:
+
+| Hoster connection | User-Agent | Observed result |
+| --- | --- | --- |
+| HTTP/1.1 | `Mozilla/5.0` | HTTP 403 challenge |
+| HTTP/1.1 | Complete inspected native default | HTTP 403 challenge |
+| HTTP/2 | `Mozilla/5.0` | HTTP 403 challenge |
+| HTTP/2 | Complete inspected native default | HTTP 200 player and successful media resolution |
+
+The complete value is
+`Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36`.
+The provider sends it for the embed and `pass_md5` requests and includes it,
+with the final embed Referer, in the exported stream. It parses the published
+`pass_md5` and `makePlay` data without executing source scripts or transferring
+browser cookies. An explicit `RELOAD` result allows one fresh attempt. A second
+reload, changed file identity, malformed prefix or active challenge remains an
+error rather than an iframe or fabricated media result.
+
+Before packaging, all three sampled movies passed two direct resolution and
+range-check runs in separate processes. The final 0.1.7 generated provider then
+completed these checks on Node.js 24.19.0:
+
+| Movie and input | Runtime | Lookup requests / total time including media checks | Result |
+| --- | --- | --- | --- |
+| Inception, TMDB `27205` | Modeled Mobile URLs, followed redirects, 1 MiB response limit | 4 / 2.5 seconds | One MP4; valid `ftyp` header and both requested ranges returned HTTP 206 |
+| Doctor Strange in the Multiverse of Madness, TMDB `453395` | Original Enhanced 0.4.14 JavaScript bindings in QuickJS | 4 / 3.0 seconds | One MP4; both ranges passed, no runtime errors |
+| Matrix, IMDb `tt0133093` | Original Enhanced 0.4.14 JavaScript bindings in QuickJS | 6 / 3.9 seconds | Verified IMDb-to-TMDB mapping, one MP4, both ranges passed, no runtime errors |
+
+The first range was bytes 0–1023; the second was bytes 1048576–1049599.
+Each reported total file length stayed consistent between its ranges. The
+generated provider only discovers the URL; these explicit diagnostic checks
+read at most two KiB per stream. They do not decode the whole movie, establish
+its audio-track inventory, or operate a physical iPhone. Language `de` comes
+from the source's release label. Transcoded quality/codecs and the player's
+empty subtitle placeholder are not presented as verified media metadata.
+
+The capped Inception run had zero truncated responses; its largest source
+response was 50,931 bytes. A final HTTP/1.1 control run with the same generated
+provider still stopped at the hoster with `source_blocked`, after two successful
+API requests and one HTTP 403. That negative control establishes the verified
+transport boundary rather than a general failure of the source.
+
+The initial HTTP/2-only diagnostic also exposed a modeling gap: Cinemeta's
+metadata endpoint did not advertise HTTP/2, although its ordinary HTTP/1.1
+request succeeded. The diagnostic now negotiates protocols before sending an
+application request. It retains HTTP/1.1 for such endpoints while negotiating
+HTTP/2 with DoodStream. The final Matrix trace records that distinction, and a
+local TLS test covers it. A challenge is never used as a reason to change
+protocol or invoke a browser solver.
+
+Reproduce the explicit checks with:
+
+```sh
+node scripts/check-native.mjs --provider einschalten --id 27205 --type movie --redirects follow --url-runtime nuvio-mobile --transport http2 --verify-media mp4
+node scripts/check-enhanced.mjs --provider einschalten --id 453395 --type movie --client-ref 0.4.14 --transport http2 --verify-media mp4
+node scripts/check-enhanced.mjs --provider einschalten --id tt0133093 --type movie --client-ref 0.4.14 --transport http2 --verify-media mp4
+```
+
+There are 35 dedicated new tests: nine for DoodStream, sixteen for einschalten,
+and ten for the diagnostic transport/media checks. Built-provider cases use a
+256 KiB QuickJS stack, 512 nested elements, standard and modeled Mobile URLs,
+and an unavailable `String.prototype.matchAll`. IMDb fallback search is bounded
+to four normalized aliases, four pages per alias and eight candidate details;
+the exact detail IMDb ID must confirm a candidate before playback.
+
+Native header propagation was also inspected at Enhanced 0.4.14: plugin headers
+become `StreamProxyHeaders.request`, then the iOS bridge passes the sanitized
+values to MPV's `http-header-fields`. This is source evidence for that boundary;
+physical-device playback, audio selection and long-running playback remain
+manual acceptance checks.
+
+No live response, signed media URL or account value was written to project or
+scratch files. Test servers and workers are stopped by their cleanup paths. The
+included loopback TLS certificate/key are explicitly synthetic test fixtures,
+trusted only inside isolated workers without changing the user's certificate
+store. See [native requirements](native-compatibility.md#einschalten).
+
+## MegaKino integration
+
+Direct checks on 2026-09-13 followed [7megakino.lol](https://7megakino.lol/)
+from its search form through detail pages and the published `data-link` player
+destinations. The accepted paths use VOE (Vega) and FireStream (Orion).
+
+Search submits `do=search`, `subaction=search` and `story` to
+`/index.php?do=search`, with `titleonly=3`. The provider follows the reported
+result ranges and checks the echoed query, page positions, totals and duplicate
+article IDs. It allows at most four normalized title aliases, ten result pages
+per alias, eight candidate details and 32 supported mirrors on a matched page.
+Exceeding a bound or observing incomplete/changing pagination remains an error.
+These bounds concern the site's published search results, not an exhaustive
+scan of its catalog.
+
+The site's exact-word option, `all_word_seach=1`, incorrectly returned no results
+for the observed German title `Die 5. Welle`; default title search returned the
+correct article. That regression was reproduced in a fixture before removing
+the option from ordinary searches. Conversely, the original title
+`너 말고 다른 연애` caused default search to reject its short words. That specific
+source rejection now permits one whole-phrase retry. An alias still rejected
+afterward does not suppress a successfully searched alias; if every query is
+rejected, the lookup fails explicitly. Neither case weakens the subsequent
+exact title/year/episode checks.
+
+Movie matching excludes the `Demnächst im kino` category: Doctor Strange 2 has
+both a current article and a separate trailer-only article with the same title
+and year. Series matching uses the `Staffel` number in the page heading and the
+series-start year. Both inspected Fallout season pages used `serie-1_<episode>`
+internally, so that first number cannot be treated as the season. Episode row
+IDs, visible episode numbers and mirror IDs must agree. Published player IMDb
+IDs are checked when available; a conflict rejects the page.
+
+The built provider completed these live checks:
+
+| Content and input | Runtime | Requests / time | Observed result |
+| --- | --- | --- | --- |
+| Die 5. Welle, IMDb `tt2304933` | Modeled Mobile URLs, followed redirects, 1 MiB response limit | 11 / 4.2 seconds | Two streams: VOE 720p HLS and a FireStream media playlist without declared dimensions |
+| Die 5. Welle, TMDB `299687` | Original Enhanced 0.4.14 JavaScript bindings in QuickJS | 14 / 18.5 seconds | The same two hoster paths, with no runtime errors |
+| Eine andere Liebe als deine S01E01, TMDB `314939` | Original Enhanced 0.4.14 JavaScript bindings in QuickJS | 13 / 9.1 seconds | One VOE 720p HLS stream, with no runtime errors |
+
+The capped movie run had no truncation; its largest response was 177,672 bytes.
+The series detail was 179,368 bytes in the Enhanced run. The sampled VOE files
+declared audio language `und`, and the FireStream playlist did not declare an
+audio inventory. No German audio or external subtitles are invented from the
+site's German catalog label. Timings describe these host-adapted checks, not
+physical-device performance or an availability guarantee.
+
+Reproduce the opt-in checks with:
+
+```sh
+node scripts/check-native.mjs --provider megakino --id tt2304933 --type movie --redirects follow --url-runtime nuvio-mobile
+node scripts/check-enhanced.mjs --provider megakino --id 299687 --type movie --client-ref 0.4.14
+node scripts/check-enhanced.mjs --provider megakino --id 314939 --type tv --season 1 --episode 1 --client-ref 0.4.14
+```
+
+The 22 dedicated tests cover normal/empty/rejected searches, numbered titles,
+pagination and bounds, mismatched metadata and canonical IDs, coming-soon
+duplicates, exact episodes, unsupported hosts, mirror deduplication, partial and
+total hoster failures, actual HLS metadata and external subtitle preservation.
+Four cases execute the generated movie/S02E01 workflows under both URL bindings
+with a 256 KiB QuickJS stack and deeply nested markup. They also keep the
+ES2016-lowered provider's QuickJS load failure covered: awaiting search results
+before the `for-of` loop fixes the reproduced `stack underflow` compiler error.
+
+All temporary source responses and diagnostics were inspected in memory. No
+source scripts were executed, and no media segments, encryption keys or live
+session data were saved. Device playback, seeking and audio/subtitle selection
+remain manual acceptance checks.
 
 ## 0.1.4 Filmo stack overflow and VIDARA exclusion
 
@@ -257,6 +438,57 @@ the current native live runner only resolves the actual provider outputs.
 The Xtream account checks above preceded the final supplemental-variant fix;
 that fix and the complete final bundles passed the fixture and QuickJS suite.
 The account was not queried again merely to repeat the same catalog downloads.
+
+## HDFilme cafe integration
+
+Direct checks on 2026-09-13 followed the player embedded by
+[HDFilme's Vaiana detail page](https://hdfilme.cafe/filme1/42055-vaiana-streaming-stream.html)
+and the published [MeineCloud player script](https://meinecloud.click/static/js/main.js?v=16).
+The detail embeds `https://meinecloud.click/movie/tt27419466`. That player lists
+hoster destinations as plain or Base64-encoded `data-link` attributes. The native
+adapter uses the same public IMDb-addressed movie route, verifies the returned
+URL and page identity, and reads supported VOE rows without executing scripts.
+
+The website's form searches for Inception, `tt1375666`, and Fallout returned a
+PHP `TypeError` despite HTTP 200. Its published AJAX quicksearch also returned
+`error` for those queries using freshly read page/session values. Neither search
+route is a prerequisite for the embedded player's IMDb lookup. A nonexistent
+movie ID returned an explicit 404. Inception and The Matrix had movie-player
+pages, but their sampled hosters did not include VOE.
+
+The sampled Dropload movie and episode paths returned Turnstile forms.
+Supervideo returned a Cloudflare block, Doodstream redirected to a Cloudflare
+challenge, and the inspected Mixdrop pages reported unavailable videos.
+The published series check returned an explicit player and episode count for
+Women in Blue, Fallout, and Dark. Those player pages supplied Dropload links;
+a native series playback chain was not established. HDFilme therefore declares
+only `movie` support, with VOE as its supported hoster.
+
+The built `providers/hdfilme.js` completed these live checks for Vaiana (2026):
+
+| Entry | Runtime | Requests | Result |
+| --- | --- | --- | --- |
+| IMDb `tt27419466` | Modeled Mobile URLs, followed redirects, 512 KiB response limit | 6, about 2.9 seconds | One 720p HLS stream |
+| TMDB `1108427` | Modeled Mobile URLs, followed redirects, 512 KiB response limit | 9, about 3.9 seconds | Verified IMDb cross-reference and one 720p HLS stream |
+| IMDb `tt27419466` | Original Enhanced 0.4.14 JavaScript bindings in QuickJS, followed redirects | 6, about 3.6 seconds | One 720p HLS stream, no runtime errors |
+| TMDB `1108427` | Original Enhanced 0.4.14 JavaScript bindings in QuickJS, followed redirects | 9, about 5.2 seconds | Verified IMDb cross-reference and one 720p HLS stream, no runtime errors |
+
+The largest observed response was 163,108 bytes; the capped runs had no
+truncation. The media server returned an HTTP 200 HLS master with 1280x720
+video. Its audio language was `und` (undetermined), and no external subtitles
+were published for that file. German audio was not inferred from the website's
+catalog language. These checks establish stream discovery and a valid master
+playlist; playback on a physical Nuvio device remains a manual acceptance step.
+
+Fixtures cover mismatched identities, changed player destinations, unsupported
+hosters, malformed encodings and URLs, missing movies, incomplete/challenged
+pages, HLS failures, case-distinct mirrors, stable ordering, deduplication and
+the three-worker concurrency limit. The actual bundle also runs with Mobile URL
+bindings, a 256 KiB QuickJS stack, 512 nested page elements, and both the native
+Base64 API and the bundle's fallback. The adapter never executes source scripts
+or downloads media segments or encryption keys. Source responses and diagnostics
+were inspected in memory; no disposable fixture downloads or session data were
+retained.
 
 ## Manual acceptance
 

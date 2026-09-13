@@ -1,6 +1,6 @@
 {
   "name": "streamnest-nuvio-plugins",
-  "version": "0.1.4",
+  "version": "0.1.7",
   "private": true,
   "type": "module",
   "description": "Native Nuvio JavaScript providers for German movies, series, and Xtream VOD.",
@@ -10,7 +10,7 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test \"test/*.test.ts\"",
+    "test": "node --import tsx --test --test-concurrency=2 \"test/*.test.ts\"",
     "check": "npm run typecheck && npm run build && npm test"
   },
   "dependencies": {

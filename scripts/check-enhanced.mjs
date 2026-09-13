@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { randomBytes, createHash, createHmac } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { getQuickJS } from 'quickjs-emscripten';
+import { verifyMp4Stream } from './diagnostic-http.mjs';
 
 // Opt-in diagnostic using the actual checked-out client's JavaScript bindings.
 // Native calls are adapted to Node; this is not an iOS networking or UI emulator.
@@ -15,11 +16,24 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const provider = args.provider;
 const mode = args.mode ?? 'streams';
 const redirects = args.redirects ?? 'follow';
+const transport = args.transport ?? 'fetch';
+if (!['fetch', 'http2'].includes(transport)) throw new Error('Invalid diagnostic transport.');
+const mediaCheck = args['verify-media'] ?? 'none';
+if (!['none', 'mp4'].includes(mediaCheck)) throw new Error('Invalid media verification mode.');
 if (!['follow', 'manual'].includes(redirects)) throw new Error('Invalid redirect mode');
-if (!['xtream', 'filmpalast', 'filmo'].includes(provider) || !['settings', 'streams'].includes(mode)
+if (!['xtream', 'filmpalast', 'filmo', 'einschalten', 'hdfilme', 'megakino'].includes(provider) || !['settings', 'streams'].includes(mode)
   || (mode === 'streams' && (provider === 'xtream' || !args.id))) {
-  throw new Error('Use --provider xtream --mode settings, or --provider filmpalast|filmo --id TMDB_ID.');
+  throw new Error('Use --provider xtream --mode settings, or --provider filmpalast|filmo|einschalten|hdfilme|megakino --id TMDB_ID; optional --type, --season, --episode, --transport and --verify-media.');
 }
+if (mediaCheck !== 'none' && mode !== 'streams') throw new Error('Media verification requires stream mode.');
+function episodeArgument(name) {
+  if (args[name] === undefined) return undefined;
+  const value = Number(args[name]);
+  if (!Number.isSafeInteger(value) || value < 0) throw new Error(`Invalid ${name}.`);
+  return value;
+}
+const season = episodeArgument('season');
+const episode = episodeArgument('episode');
 const client = resolve(args['client-root'] ?? resolve(root, '../NuvioMobile-Enhanced'));
 const clientRef = args['client-ref'];
 if (clientRef && !/^[a-zA-Z0-9][a-zA-Z0-9._/-]*$/.test(clientRef)) throw new Error('Invalid client Git reference');
@@ -58,7 +72,8 @@ if (usesStaticBindings) {
   callCode = calls[mode === 'settings' ? 0 : 1][1]
     .replace(/\$tmdbIdArg/g, () => JSON.stringify(args.id))
     .replace(/\$mediaTypeArg/g, () => JSON.stringify(args.type ?? 'movie'))
-    .replace(/\$(?:seasonArg|episodeArg)/g, 'undefined');
+    .replace(/\$seasonArg/g, String(season))
+    .replace(/\$episodeArg/g, String(episode));
 }
 const vm = (await getQuickJS()).newContext();
 const started = Date.now();
@@ -108,7 +123,7 @@ function evaluate(code) {
 try {
   register('__get_scraper_id', () => `streamnest-${provider}`);
   register('__get_scraper_settings', () => '{}');
-  register('__get_call_args', () => JSON.stringify({ tmdbId: args.id, mediaType: args.type ?? 'movie' }));
+  register('__get_call_args', () => JSON.stringify({ tmdbId: args.id, mediaType: args.type ?? 'movie', season, episode }));
   register('__capture_result', value => { captured = JSON.parse(value); });
   register('__capture_settings_result', value => { captured = JSON.parse(value); });
   register('__parse_url', input => {
@@ -140,7 +155,8 @@ try {
     let response;
     try {
       const timeout = Math.max(1, deadline - Date.now());
-      response = JSON.parse(execFileSync(process.execPath, ['--input-type=module', '-e', fetchProcess], {
+      const worker = transport === 'http2' ? [resolve(root, 'scripts/diagnostic-http.mjs')] : ['--input-type=module', '-e', fetchProcess];
+      response = JSON.parse(execFileSync(process.execPath, worker, {
         input: JSON.stringify({ url, method, headers: JSON.parse(rawHeaders), body,
           redirect: redirects === 'follow' || followRedirects ? 'follow' : 'manual', timeout }),
         encoding: 'utf8', timeout: timeout + 1000, maxBuffer: 8 * 1024 * 1024, windowsHide: true,
@@ -150,6 +166,7 @@ try {
       response = { ok: false, status: 0, statusText: 'Native request failed', url, body: '', headers: {} };
     }
     operation.status = response.status; operation.bytes = Buffer.byteLength(response.body);
+    if (response.httpVersion) operation.httpVersion = response.httpVersion;
     if (action === 'captcha') {
       try {
         const challenge = JSON.parse(response.body);
@@ -171,12 +188,15 @@ try {
     if (captured === undefined && jobs.value === 0) throw new Error('Client result was not delivered');
   }
   if (!Array.isArray(captured)) throw new Error('Client result timed out or was not an array');
+  const media = [];
+  if (mediaCheck === 'mp4') for (const stream of captured) media.push(await verifyMp4Stream(stream));
   const summary = mode === 'settings' ? captured.filter(field => field.type === 'text').map(field => field.key)
     : captured.map(stream => ({ quality: stream.quality, language: stream.language, subtitleCount: stream.subtitles?.length ?? 0 }));
-  console.log(JSON.stringify({ provider, mode, redirects, clientRef: clientRef ?? 'working-tree', elapsedMs: Date.now() - started, count: captured.length, result: summary, errors, requests }));
-  if (!captured.length || errors.length) process.exitCode = 1;
+  console.log(JSON.stringify({ provider, mode, redirects, transport, clientRef: clientRef ?? 'working-tree', elapsedMs: Date.now() - started,
+    count: captured.length, result: summary, ...(mediaCheck === 'mp4' ? { media } : {}), errors, requests }));
+  if (!captured.length || errors.length || media.some(result => !result.ok)) process.exitCode = 1;
 } catch (error) {
-  console.log(JSON.stringify({ provider, mode, stage, error: error.message, requests }));
+  console.log(JSON.stringify({ provider, mode, transport, stage, error: error.message, requests }));
   process.exitCode = 1;
 } finally {
   vm.dispose();

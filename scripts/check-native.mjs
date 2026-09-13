@@ -3,6 +3,7 @@ import { createContext, Script } from 'node:vm';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { mobileUrlBindings } from '../test/helpers/nuvio-mobile-url.mjs';
+import { fetchHttp2, verifyMp4Stream } from './diagnostic-http.mjs';
 
 // Explicit opt-in live checker. Credentials enter through stdin, never argv or files.
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -11,9 +12,14 @@ const values = Object.fromEntries(process.argv.slice(2).reduce((pairs, value, in
   return pairs;
 }, []));
 const provider = values.provider;
-if (!['filmpalast', 'filmo', 'xtream'].includes(provider) || !values.id || !values.type) {
-  throw new Error('Use --provider, --id and --type; optional --season, --episode, --limit, --redirects and --url-runtime.');
+if (!['filmpalast', 'filmo', 'einschalten', 'hdfilme', 'megakino', 'xtream'].includes(provider) || !values.id || !values.type) {
+  throw new Error('Use --provider, --id and --type; optional --season, --episode, --limit, --redirects, --url-runtime, --transport and --verify-media.');
 }
+const transport = values.transport ?? 'fetch';
+if (!['fetch', 'http2'].includes(transport)) throw new Error('Invalid diagnostic transport.');
+const mediaCheck = values['verify-media'] ?? 'none';
+if (!['none', 'mp4'].includes(mediaCheck)) throw new Error('Invalid media verification mode.');
+const requestFetch = transport === 'http2' ? fetchHttp2 : fetch;
 const redirects = values.redirects ?? 'manual';
 if (!['manual', 'follow'].includes(redirects)) throw new Error('Invalid native redirect mode.');
 const urlRuntime = values['url-runtime'] ?? 'standard';
@@ -41,7 +47,7 @@ const context = createContext({
     const fields = new URLSearchParams(options?.method === 'GET' ? new URL(url).search : options?.body ?? '');
     const operation = { action: fields.get('action') ?? fields.get('type') ?? (url.includes('/player_api.php') ? 'authenticate' : 'metadata'), category: fields.get('category_id') ?? fields.get('cat_id') };
     if (url.includes('/enigma2.php')) stats.legacyRequests++;
-    const response = await fetch(url, { ...options, redirect: redirects === 'follow' ? 'follow' : options?.redirect,
+    const response = await requestFetch(url, { ...options, redirect: redirects === 'follow' ? 'follow' : options?.redirect,
       headers: { ...options?.headers, Connection: 'close' }, signal: AbortSignal.timeout(20_000) });
     const original = Buffer.from(await response.text());
     stats.maximumBytes = Math.max(stats.maximumBytes, original.length);
@@ -58,10 +64,15 @@ const start = Date.now();
 try {
   const streams = await context.module.exports.getStreams(values.id, values.type,
     values.season === undefined ? undefined : Number(values.season), values.episode === undefined ? undefined : Number(values.episode));
-  console.log(JSON.stringify({ ok: true, provider, redirects, urlRuntime, elapsedMs: Date.now() - start, stats,
+  const media = [];
+  if (mediaCheck === 'mp4') for (const stream of streams) media.push(await verifyMp4Stream(stream));
+  const ok = mediaCheck === 'none' || (streams.length > 0 && media.every(result => result.ok));
+  console.log(JSON.stringify({ ok, provider, redirects, urlRuntime, transport, elapsedMs: Date.now() - start, stats,
+    ...(mediaCheck === 'mp4' ? { media } : {}),
     streams: streams.map(stream => ({ name: stream.name, quality: stream.quality, language: stream.language, subtitleCount: stream.subtitles?.length ?? 0 })) }));
+  if (!ok) process.exitCode = 1;
 } catch (error) {
-  console.log(JSON.stringify({ ok: false, provider, error: typeof error.code === 'string' ? error.code : 'request_failed',
+  console.log(JSON.stringify({ ok: false, provider, transport, error: typeof error.code === 'string' ? error.code : 'request_failed',
     elapsedMs: Date.now() - start, stats, lastOperations: operations.slice(-6) }));
   process.exitCode = 1;
 } finally {

@@ -11,6 +11,9 @@ const prelude = await readFile(resolve(root, 'src/native/polyfills.js'), 'utf8')
 const definitions = [
   { id: 'streamnest-filmpalast', name: 'Filmpalast', entry: 'filmpalast', types: ['movie', 'tv'], hasSettings: false },
   { id: 'streamnest-filmo', name: 'Filmo', entry: 'filmo', types: ['movie'], hasSettings: false },
+  { id: 'streamnest-einschalten', name: 'einschalten', entry: 'einschalten', types: ['movie'], hasSettings: false },
+  { id: 'streamnest-hdfilme', name: 'HDFilme', entry: 'hdfilme', types: ['movie'], hasSettings: false },
+  { id: 'streamnest-megakino', name: 'MegaKino', entry: 'megakino', types: ['movie', 'tv'], hasSettings: false },
   { id: 'streamnest-xtream', name: 'Xtream VOD', entry: 'xtream', types: ['movie', 'tv'], hasSettings: true },
 ];
 const bundledPackages = new Set();

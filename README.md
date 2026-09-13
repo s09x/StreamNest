@@ -21,11 +21,12 @@ https://raw.githubusercontent.com/s09x/StreamNest/main/manifest.json
 The compiled files in `providers/` are included in the repository. Node.js and the
 development tools are not needed to use the providers in Nuvio.
 
-Version 0.1.4 replaces Filmo's recursive page-text extraction after an iOS stack
-overflow report and excludes VIDARA from Filmpalast. It retains 0.1.3's native
-URL compatibility corrections and faster supported Xtream catalog lookup. After
+Version 0.1.7 adds einschalten movies through DoodStream, HDFilme movies through
+VOE, and MegaKino movies and series episodes through VOE and FireStream. It
+retains the Filmo stack correction, Filmpalast's VIDARA exclusion, native URL
+compatibility corrections, and faster supported Xtream catalog lookup. After
 updating, refresh the repository and check that the installed providers show
-**0.1.4**.
+**0.1.7**.
 
 ## Providers
 
@@ -33,6 +34,9 @@ updating, refresh the repository and check that the installed providers show
 | --- | --- | --- |
 | Filmpalast | Movies and series episodes | None |
 | Filmo | Movies through VOE and Byse | None |
+| einschalten | Movies through DoodStream | None; native HTTP/2 support required |
+| HDFilme | Movies through the embedded MeineCloud player and VOE | None |
+| MegaKino | Movies and exact series episodes through VOE and FireStream | None |
 | Xtream VOD | Movies and series from your account | Host, username, password in native provider settings |
 
 Filmpalast uses **VOE, Vixeo, FireStream, FlyFile and Playmate**. VIDARA links,
@@ -46,6 +50,48 @@ Its VOE handoff requires a fetch bridge that honors manual redirects so Filmo's
 session cookie can be removed before crossing origins. Byse uses a same-origin
 HTML handoff; it can be used independently of that VOE requirement. Duplicate
 Byse destinations within one lookup share the same resolution work.
+
+[einschalten](https://einschalten.in/) uses its movie API and DoodStream's
+published player data. Numeric TMDB requests address the movie directly; IMDb
+requests require a confirmed source identity. Each lookup obtains a fresh media
+address. The provider carries the tested complete browser identifier and Referer
+through hoster resolution and into the native player.
+
+The DoodStream path requires **HTTP/2 from Nuvio's native fetch bridge**. Its
+transport requirements and the observed HTTP/1.1/HTTP/2 comparison are recorded in
+[native compatibility](docs/native-compatibility.md#einschalten). Release-language
+labels are preserved; upload names do not establish the delivered video quality
+or all audio tracks. No account settings are needed. See
+[einschalten verification](docs/verification.md#einschalten-integration).
+
+HDFilme uses the public IMDb-addressed movie player embedded by
+[hdfilme.cafe](https://hdfilme.cafe/). TMDB requests first require a verified IMDb
+cross-reference. The adapter reads the player's published VOE mirrors and checks
+their HLS playlists, preserving subtitles and the declared audio information.
+The sampled Vaiana (2026) route returned 720p; its audio language was declared
+`und` (undetermined), so German audio is not assumed.
+
+HDFilme currently supports **movies with VOE mirrors**. The sampled Dropload and
+Doodstream paths required access checks, Supervideo was blocked, and Mixdrop
+files were unavailable. The inspected series player supplied Dropload links,
+so this provider does not advertise series support. HDFilme's website search
+currently fails; the embedded player's verified IMDb route is used directly.
+See the [HDFilme verification](docs/verification.md#hdfilme-cafe-integration).
+
+MegaKino uses [7megakino.lol](https://7megakino.lol/), with **VOE (Vega)** and
+**FireStream (Orion)** mirrors. It searches verified German and original titles,
+checks the detail title and year, and selects the requested season and episode.
+Coming-soon articles and trailers are excluded. The source's internal episode
+prefix resets to `1` even on later seasons; the page heading establishes the
+actual season. HLS dimensions and audio groups come from the returned playlist;
+unknown audio languages remain unknown.
+
+Other MegaKino mirrors, including Sirius/MeineCloud, VIDARA, Supervideo,
+Doodstream, Mixdrop and Streamtape, are not offered by this adapter. Several
+sampled older files were deleted or blocked, so a catalog entry can have no
+supported playable mirror. A working alternative survives a failed mirror.
+See [MegaKino verification](docs/verification.md#megakino-integration) for the
+movie and episode checks, search limits, and native runtime results.
 
 Byse performs its published server attestation and automatic proof-of-work and
 authenticates the returned playback data before using it. This requires a secure
@@ -121,7 +167,10 @@ npm run check
 ```
 
 The check runs TypeScript validation, rebuilds `manifest.json` and `providers/`,
-and executes unit and QuickJS integration tests. Build output isolates dependency
+and executes unit and QuickJS integration tests. At most two test files run at
+once to bound the memory used by simultaneous V8 and QuickJS processes. The
+individual concurrency tests still exercise their complete worker contracts.
+Build output isolates dependency
 variables from Nuvio's globals and exposes `module.exports.getStreams` plus the
 Xtream `onSettings` export. Syntax checks reject native async syntax and unlowered
 classes in generated artifacts; an actual Hermes compiler was also used during
@@ -146,5 +195,13 @@ QuickJS. It adapts native calls to Node and blocks on HTTP requests like the
 inspected bridge. Use `--client-root` to select the checkout and `--client-ref 0.4.14`
 to read that locally available Git revision. It cannot validate
 the installed app, its UI, or the iPhone's network connection.
+
+Both live checkers accept `--transport http2` to negotiate HTTP/2 for HTTPS
+requests, retaining HTTP/1.1 for endpoints that do not offer HTTP/2. Their default
+`fetch` transport preserves the
+existing checks. Add `--verify-media mp4` to inspect at most two KiB from each
+exported MP4, checking its header and a separate byte range with the returned
+playback headers. These opt-in media checks are separate from normal stream
+discovery. The diagnostic transport is not bundled into the providers.
 
 See [verification](docs/verification.md) for executed checks and their limits.
