@@ -79,12 +79,12 @@ test('generated providers parse as ES2016 for Nuvio Hermes dynamic loading', asy
 });
 
 test('manifest bundles execute as native CJS exports without Node globals or external require', async () => {
-  assert.equal(manifest.scrapers.length, 6);
+  assert.equal(manifest.scrapers.length, 7);
   const ids = new Set(manifest.scrapers.map(item => item.id));
-  assert.equal(ids.size, 6);
+  assert.equal(ids.size, 7);
   for (const entry of manifest.scrapers) {
     assert.equal(entry.version, manifest.version);
-    assert.match(entry.filename, /^providers\/(?:filmpalast|filmo|einschalten|hdfilme|megakino|xtream)\.js$/);
+    assert.match(entry.filename, /^providers\/(?:filmpalast|filmo|einschalten|hdfilme|megakino|huhu|xtream)\.js$/);
     assert.deepEqual(entry.supportedTypes, ['streamnest-filmo', 'streamnest-einschalten', 'streamnest-hdfilme'].includes(entry.id) ? ['movie'] : ['movie', 'tv']);
     const code = await readFile(new URL(entry.filename, root), 'utf8');
     assert.ok(Buffer.byteLength(code) < 1024 * 1024);

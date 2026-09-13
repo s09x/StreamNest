@@ -12,7 +12,7 @@ const values = Object.fromEntries(process.argv.slice(2).reduce((pairs, value, in
   return pairs;
 }, []));
 const provider = values.provider;
-if (!['filmpalast', 'filmo', 'einschalten', 'hdfilme', 'megakino', 'xtream'].includes(provider) || !values.id || !values.type) {
+if (!['filmpalast', 'filmo', 'einschalten', 'hdfilme', 'megakino', 'huhu', 'xtream'].includes(provider) || !values.id || !values.type) {
   throw new Error('Use --provider, --id and --type; optional --season, --episode, --limit, --redirects, --url-runtime, --transport and --verify-media.');
 }
 const transport = values.transport ?? 'fetch';

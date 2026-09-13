@@ -21,9 +21,9 @@ if (!['fetch', 'http2'].includes(transport)) throw new Error('Invalid diagnostic
 const mediaCheck = args['verify-media'] ?? 'none';
 if (!['none', 'mp4'].includes(mediaCheck)) throw new Error('Invalid media verification mode.');
 if (!['follow', 'manual'].includes(redirects)) throw new Error('Invalid redirect mode');
-if (!['xtream', 'filmpalast', 'filmo', 'einschalten', 'hdfilme', 'megakino'].includes(provider) || !['settings', 'streams'].includes(mode)
+if (!['xtream', 'filmpalast', 'filmo', 'einschalten', 'hdfilme', 'megakino', 'huhu'].includes(provider) || !['settings', 'streams'].includes(mode)
   || (mode === 'streams' && (provider === 'xtream' || !args.id))) {
-  throw new Error('Use --provider xtream --mode settings, or --provider filmpalast|filmo|einschalten|hdfilme|megakino --id TMDB_ID; optional --type, --season, --episode, --transport and --verify-media.');
+  throw new Error('Use --provider xtream --mode settings, or --provider filmpalast|filmo|einschalten|hdfilme|megakino|huhu --id TMDB_ID; optional --type, --season, --episode, --transport and --verify-media.');
 }
 if (mediaCheck !== 'none' && mode !== 'streams') throw new Error('Media verification requires stream mode.');
 function episodeArgument(name) {

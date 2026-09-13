@@ -14,6 +14,7 @@ const definitions = [
   { id: 'streamnest-einschalten', name: 'einschalten', entry: 'einschalten', types: ['movie'], hasSettings: false },
   { id: 'streamnest-hdfilme', name: 'HDFilme', entry: 'hdfilme', types: ['movie'], hasSettings: false },
   { id: 'streamnest-megakino', name: 'MegaKino', entry: 'megakino', types: ['movie', 'tv'], hasSettings: false },
+  { id: 'streamnest-huhu', name: 'Huhu', entry: 'huhu', types: ['movie', 'tv'], hasSettings: false },
   { id: 'streamnest-xtream', name: 'Xtream VOD', entry: 'xtream', types: ['movie', 'tv'], hasSettings: true },
 ];
 const bundledPackages = new Set();

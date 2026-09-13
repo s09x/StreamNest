@@ -21,12 +21,11 @@ https://raw.githubusercontent.com/s09x/StreamNest/main/manifest.json
 The compiled files in `providers/` are included in the repository. Node.js and the
 development tools are not needed to use the providers in Nuvio.
 
-Version 0.1.7 adds einschalten movies through DoodStream, HDFilme movies through
-VOE, and MegaKino movies and series episodes through VOE and FireStream. It
-retains the Filmo stack correction, Filmpalast's VIDARA exclusion, native URL
-compatibility corrections, and faster supported Xtream catalog lookup. After
-updating, refresh the repository and check that the installed providers show
-**0.1.7**.
+Version 0.1.8 adds **Huhu** for movies and series through VOE and Vixeo/Vidsonic.
+It retains 0.1.7's einschalten, HDFilme and MegaKino providers, the Filmo stack
+correction, Filmpalast's VIDARA exclusion, native URL compatibility corrections,
+and faster supported Xtream catalog lookup. After updating, refresh the
+repository and check that the installed providers show **0.1.8**.
 
 ## Providers
 
@@ -37,6 +36,7 @@ updating, refresh the repository and check that the installed providers show
 | einschalten | Movies through DoodStream | None; native HTTP/2 support required |
 | HDFilme | Movies through the embedded MeineCloud player and VOE | None |
 | MegaKino | Movies and exact series episodes through VOE and FireStream | None |
+| Huhu | Movies and exact series episodes through VOE and Vixeo/Vidsonic | None |
 | Xtream VOD | Movies and series from your account | Host, username, password in native provider settings |
 
 Filmpalast uses **VOE, Vixeo, FireStream, FlyFile and Playmate**. VIDARA links,
@@ -92,6 +92,15 @@ sampled older files were deleted or blocked, so a catalog entry can have no
 supported playable mirror. A working alternative survives a failed mirror.
 See [MegaKino verification](docs/verification.md#megakino-integration) for the
 movie and episode checks, search limits, and native runtime results.
+
+Huhu uses the site's published MediaURL interface and accepts TMDB or IMDb IDs.
+It validates the returned identity and checks a series episode against the actual
+episode list before requesting its mirrors. Source language labels and published
+subtitles are retained; HLS resolution takes precedence over an upload filename.
+Duplicate links share resolution work, at most three mirrors run concurrently,
+and successful alternatives survive individual failures. Only **VOE and
+Vixeo/Vidsonic** are supported for this source. Other listed hosters are skipped;
+see [hoster coverage](docs/hosters.md) for the observed limits.
 
 Byse performs its published server attestation and automatic proof-of-work and
 authenticates the returned playback data before using it. This requires a secure

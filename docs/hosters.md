@@ -3,6 +3,7 @@
 StreamNest uses five of the six hoster families found in the inspected Filmpalast
 movie and episode pages, and both hosters found in the inspected Filmo pages.
 einschalten additionally uses DoodStream's published MP4 route with HTTP/2.
+Huhu supports the VOE and Vixeo/Vidsonic families returned by its MediaURL API.
 VIDARA is deliberately excluded from Filmpalast since 0.1.4 at the user's request.
 This is a dated source census, not a claim that upstream sites cannot add hosters.
 
@@ -20,6 +21,9 @@ This is a dated source census, not a claim that upstream sites cannot add hoster
 | HDFilme / VOE | The embedded MeineCloud movie player, public VOE data, and HLS validation | Vaiana (2026) returned a 720p HLS master through the built adapter and original Enhanced 0.4.14 JavaScript bindings. Its audio language was undetermined. |
 | MegaKino / VOE (Vega) | Direct page/episode `data-link`, public VOE redirects and data, then HLS validation | Die 5. Welle and Eine andere Liebe als deine S01E01 returned 720p HLS. Their audio language was declared `und`. The sampled older Doctor Strange 2 and Fallout S02E01 files returned 404. |
 | MegaKino / FireStream (Orion) | Direct `data-link`, public video data and resolve POST, then HLS validation | Die 5. Welle returned a valid media playlist. It did not declare dimensions or audio groups, so no quality tier or language inventory is invented. |
+| Huhu / VOE | Validated movie/episode identity, direct public hoster link, normal VOE redirects/data and HLS inspection | Inception and Fallout S01E01 produced valid HLS. The Inception upload label says 1080p while the delivered master is 720p; the provider reports the manifest resolution. |
+| Huhu / Vixeo | Existing `vidsonic.net` / `vixeo.io` decoder and HLS inspection | Inception and Matrix produced 720p HLS through Vidsonic. |
+| Huhu / other hosters | Not offered by this provider; no requests to unsupported hosters during discovery | The sampled list also contained Dood, Vidoza, Supervideo, Mixdrop, Veev, Streamtape and LuluVdo. A direct Supervideo probe returned Cloudflare 403 and the Vidoza sample returned 404. The other families were inventoried without a complete native playback check. |
 
 ## einschalten and DoodStream
 
@@ -135,6 +139,11 @@ segments or encryption keys. Adapters that inspect the HLS playlist use its
 declared dimensions instead of an original upload's filename or byte size. The
 shared VOE decoder initially reports source-declared player-title quality;
 HDFilme and MegaKino replace that value with the checked HLS dimensions.
+Huhu additionally inspects VOE URLs ending in `.m3u8` and uses the actual HLS
+resolution. If that playlist contains no resolution, the upload tier is not
+reinstated. Huhu preserves source-declared language labels when neither the
+manifest nor the player supplies an audio inventory; those labels do not claim
+an exhaustive list of embedded tracks.
 
 Known standard heights produce values such as `720p`. Nonstandard dimensions such
 as `1920x800` remain explicit dimensions. A default audio-language setting does
